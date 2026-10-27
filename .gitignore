@@ -1,0 +1,9 @@
+os/build/
+os/sdkconfig
+os/sdkconfig.old
+os/managed_components/
+os/dependencies.lock
+**/build/
+dist/
+*.pyc
+__pycache__/
