@@ -48,9 +48,11 @@ void app_main(void) {
         nvs_flash_init();
     }
     cpos_hal_init();
+#ifndef CONFIG_CPOS_SELFTEST
     hal_display_init();
-    gfx_init();
     hal_kbd_init();
+#endif
+    gfx_init();
     int sd = hal_sd_mount();
     ESP_LOGI(TAG, "CardputerOS boot, sd=%d, free heap %u", sd, (unsigned)esp_get_free_heap_size());
 #ifdef CONFIG_CPOS_SELFTEST

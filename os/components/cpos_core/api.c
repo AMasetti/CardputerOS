@@ -216,10 +216,11 @@ static int p_get(int h, const char *key, int type, void *out, size_t *len) {
     char k[16];
     key_name(k, key);
     size_t n = *len;
+    if (n == 0) out = NULL; /* size query */
     esp_err_t e = nvs_get_blob(s_nvs[h], k, out, &n);
-    if (e != ESP_OK) return -1;
-    *len = n;
-    return 0;
+    if (e == ESP_OK) { *len = n; return 0; }
+    if (e == ESP_ERR_NVS_INVALID_LENGTH) { *len = n; return -2; }
+    return -1;
 }
 static int p_set(int h, const char *key, int type, const void *val, size_t len) {
     if (h < 0 || h >= 8 || !s_nvs_used[h]) return -1;

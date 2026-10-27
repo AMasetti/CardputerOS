@@ -1,5 +1,11 @@
 #include "hal.h"
 #include "driver/gpio.h"
+#include "sdkconfig.h"
+
+#ifdef CONFIG_CPOS_SELFTEST
+/* the emulator has no ADC calibration hardware: report a fixed battery and keep esp_adc out of the image */
+int hal_batt_mv(void) { return 3900; }
+#else
 #include "esp_adc/adc_cali.h"
 #include "esp_adc/adc_cali_scheme.h"
 #include "esp_adc/adc_oneshot.h"
@@ -31,6 +37,8 @@ int hal_batt_mv(void) {
     }
     return n ? (sum / n) * 2 : 0; /* resistor divider 1:2 */
 }
+
+#endif
 
 int hal_batt_pct(void) {
     float v = (float)hal_batt_mv();

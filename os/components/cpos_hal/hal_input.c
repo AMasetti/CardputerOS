@@ -127,7 +127,7 @@ void hal_kbd_get(cpos_kbd_t *o) {
         for (int c = 0; c < 14; c++) {
             if (!d[r][c]) continue;
             char ch = o->shift ? KEYMAP[r][c].b : KEYMAP[r][c].a;
-            if (!ch || ch == K_TAB || ch == K_ENTER || ch == K_BS || ch == ' ') continue;
+            if (!ch || ch == K_TAB || ch == K_ENTER || ch == K_BS) continue;
             if (o->count < CPOS_KBD_MAX_KEYS) o->keys[o->count++] = ch;
         }
     }

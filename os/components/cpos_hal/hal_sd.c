@@ -9,6 +9,20 @@
 static const char *TAG = "sd";
 static sdmmc_card_t *s_card;
 
+#ifdef CONFIG_CPOS_SD_FROM_FLASH
+/* emulator builds: a read-only FAT partition stands in for the card */
+static bool s_flash_fs;
+int hal_sd_mount(void) {
+    esp_vfs_fat_mount_config_t mc = {.format_if_mount_failed = false, .max_files = 6};
+    wl_handle_t unused;
+    (void)unused;
+    esp_err_t e = esp_vfs_fat_spiflash_mount_ro("/sdcard", "storage", &mc);
+    s_flash_fs = e == ESP_OK;
+    if (!s_flash_fs) ESP_LOGW(TAG, "storage mount failed: %s", esp_err_to_name(e));
+    return s_flash_fs ? 0 : -1;
+}
+bool hal_sd_ready(void) { return s_flash_fs; }
+#else
 int hal_sd_mount(void) {
     if (s_card) return 0;
     spi_bus_config_t bus = {.mosi_io_num = PIN_SD_MOSI, .miso_io_num = PIN_SD_MISO, .sclk_io_num = PIN_SD_SCK,
@@ -33,3 +47,4 @@ int hal_sd_mount(void) {
 }
 
 bool hal_sd_ready(void) { return s_card != NULL; }
+#endif

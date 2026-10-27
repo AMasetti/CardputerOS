@@ -88,10 +88,20 @@ int cpos_read_header(const char *path, cpos_app_header_t *out, const char **err)
     return rc;
 }
 
+/*
+ * Code lives in executable RAM that we reach through the instruction-bus alias. Only aligned
+ * 32-bit accesses are used there (it is what the IDF heap itself does for EXEC allocations), so
+ * the same code path works on the chip and in the emulator.
+ */
 static void write_code(void *code, size_t off, const void *src, size_t n) {
-    /* code is the instruction-bus alias; write through the data-bus alias of the same RAM */
-    uint8_t *dw = (uint8_t *)esp_ptr_diram_iram_to_dram(code);
-    memcpy(dw + off, src, n);
+    volatile uint32_t *d = (volatile uint32_t *)((uint8_t *)code + off);
+    const uint8_t *s = src;
+    for (size_t i = 0; i < n; i += 4) {
+        uint32_t w = 0;
+        size_t m = n - i < 4 ? n - i : 4;
+        memcpy(&w, s + i, m);
+        *d++ = w;
+    }
 }
 
 void cpos_unload(cpos_image_t *img) {
@@ -144,8 +154,7 @@ int cpos_load(const char *path, cpos_image_t *img, const char **err) {
     if (!tmp) { *err = "out of memory"; goto out; }
 
     /* code: file bytes, then zero the rest */
-    uint8_t *dw = (uint8_t *)esp_ptr_diram_iram_to_dram(img->code);
-    memset(dw, 0, img->code_size);
+    for (size_t o = 0; o < img->code_size; o += 4) ((volatile uint32_t *)img->code)[o / 4] = 0;
     for (size_t o = 0; o < code_ph.p_filesz; o += 1024) {
         size_t n = code_ph.p_filesz - o < 1024 ? code_ph.p_filesz - o : 1024;
         if (rd(f, code_ph.p_offset + o, tmp, n)) { *err = "short read (code)"; goto out; }
@@ -174,15 +183,15 @@ int cpos_load(const char *path, cpos_image_t *img, const char **err) {
             uint32_t where = r.r_offset;
             uint32_t *p;
             if (where >= code_ph.p_vaddr && where + 4 <= code_ph.p_vaddr + code_ph.p_memsz)
-                p = (uint32_t *)(dw + (where - code_ph.p_vaddr));
+                p = (uint32_t *)((uint8_t *)img->code + (where - code_ph.p_vaddr));
             else if (img->data && where >= data_ph.p_vaddr && where + 4 <= data_ph.p_vaddr + data_ph.p_memsz)
                 p = (uint32_t *)((uint8_t *)img->data + (where - data_ph.p_vaddr));
             else continue; /* debug sections etc. */
-            uint32_t v = *p;
+            uint32_t v = *(volatile uint32_t *)p;
             if (v >= code_ph.p_vaddr && v < code_ph.p_vaddr + code_ph.p_memsz + 4) v += code_off;
             else if (img->data && v >= data_ph.p_vaddr && v < data_ph.p_vaddr + data_ph.p_memsz + 4) v += data_off;
             else continue; /* not an address into the image */
-            *p = v;
+            *(volatile uint32_t *)p = v;
             nreloc++;
         }
     }

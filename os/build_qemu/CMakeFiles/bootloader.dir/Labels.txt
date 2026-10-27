@@ -1,0 +1,13 @@
+# Target labels
+ bootloader
+# Source files and their labels
+/home/user/CardputerOS/os/build_qemu/CMakeFiles/bootloader
+/home/user/CardputerOS/os/build_qemu/CMakeFiles/bootloader.rule
+/home/user/CardputerOS/os/build_qemu/CMakeFiles/bootloader-complete.rule
+/home/user/CardputerOS/os/build_qemu/bootloader-prefix/src/bootloader-stamp/bootloader-build.rule
+/home/user/CardputerOS/os/build_qemu/bootloader-prefix/src/bootloader-stamp/bootloader-configure.rule
+/home/user/CardputerOS/os/build_qemu/bootloader-prefix/src/bootloader-stamp/bootloader-download.rule
+/home/user/CardputerOS/os/build_qemu/bootloader-prefix/src/bootloader-stamp/bootloader-install.rule
+/home/user/CardputerOS/os/build_qemu/bootloader-prefix/src/bootloader-stamp/bootloader-mkdir.rule
+/home/user/CardputerOS/os/build_qemu/bootloader-prefix/src/bootloader-stamp/bootloader-patch.rule
+/home/user/CardputerOS/os/build_qemu/bootloader-prefix/src/bootloader-stamp/bootloader-update.rule
