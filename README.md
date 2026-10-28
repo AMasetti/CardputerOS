@@ -93,7 +93,7 @@ with a clear message. Rebuild apps after an ABI major change.
 
 ## Releases and the store
 
-CI (`.github/workflows/build.yml`) builds the OS and every app. On a push to `main`, each app/OS
+CI (`.github/workflows/build.yml`) builds the OS and every app. On a push to `main` or `master`, each app/OS
 version that has no release yet gets one: tag `<name>-vX.Y.Z`, asset `<tag>.elf` (apps) or `<tag>.bin`
 (OS, plus `<tag>-full.bin` for first-time flashing). Bump `version` in `apps/<name>/app.json`
 (or `os/version.txt`) to publish a new version.
