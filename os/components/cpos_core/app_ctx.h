@@ -44,11 +44,14 @@ extern const cpos_api_t g_api;
 
 /* runner.c */
 int cpos_run_app(const char *path, const char **err); /* blocks until the app ends */
+extern void (*cpos_before_app_start)(void);           /* called after loading, right before the app starts */
 void cpos_boot_check(char *msg, size_t n);           /* crash report of the previous boot, if any */
 
 /* services shared with the UI */
 void cpos_net_fill(cpos_net_api_t *n);
 void cpos_audio_fill(cpos_audio_api_t *a);
+void cpos_ui_beep(int hz, int ms);
+void cpos_ui_audio_off(void);
 void cpos_imu_fill(cpos_imu_api_t *a);
 void cpos_app_cleanup_net(app_ctx_t *a);
 void cpos_app_cleanup_audio(app_ctx_t *a);

@@ -230,14 +230,21 @@ static void scan_apps(void) {
     qsort(s_apps, s_napps, sizeof(s_apps[0]), cmp_app);
 }
 
-static void run_app(const app_entry_t *a) {
-    ui_status("Starting...", a->name);
-    /* the launcher's own canvas is 64 KB: give it back while the app runs */
+static void release_canvas(void) {
     gfx_destroy(ui_cv);
     ui_cv = NULL;
+}
+
+static void run_app(const app_entry_t *a) {
+    ui_status("Starting...", a->name);
+    vTaskDelay(pdMS_TO_TICKS(60)); /* let the launch click finish */
+    cpos_ui_audio_off();
+    /* the launcher's own canvas is 64 KB: give it back while the app runs */
+    cpos_before_app_start = release_canvas;
     const char *err = NULL;
     int rc = cpos_run_app(a->path, &err);
-    ui_cv = gfx_create(CPOS_SCREEN_W, CPOS_SCREEN_H, 16);
+    cpos_before_app_start = NULL;
+    if (!ui_cv) ui_cv = gfx_create(CPOS_SCREEN_W, CPOS_SCREEN_H, 16);
     if (rc < 0 && err) {
         char m[96];
         snprintf(m, sizeof(m), "%s: %s", a->name, err);
@@ -322,23 +329,23 @@ void cpos_ui_run(void) {
     int sel = 0;
     for (;;) {
         scan_apps();
-        static ui_item_t items[48];
+        static launcher_item_t items[48];
         int n = 0;
         for (int i = 0; i < s_napps; i++, n++) {
-            snprintf(items[n].left, 48, "%.28s", s_apps[i].name);
-            snprintf(items[n].right, 24, "%s%s", s_apps[i].ok ? "v" : "", s_apps[i].ok ? s_apps[i].ver : "invalid");
-            items[n].color = s_apps[i].ok ? 0 : C_ERR;
+            items[n] = (launcher_item_t){.kind = LI_APP, .color = launcher_color_for(s_apps[i].name)};
+            snprintf(items[n].name, sizeof(items[n].name), "%s", s_apps[i].name);
+            snprintf(items[n].sub, sizeof(items[n].sub), "%s%s", s_apps[i].ok ? "v" : "", s_apps[i].ok ? s_apps[i].ver : "invalid file");
+            items[n].sub_color = s_apps[i].ok ? 0 : C_ERR;
         }
         int apps_end = n;
-        snprintf(items[n].left, 48, "+ App Store"); items[n].right[0] = 0; items[n].color = C_ACC; n++;
-        snprintf(items[n].left, 48, "+ WiFi"); snprintf(items[n].right, 24, "%s", cpos_wifi_is_connected() ? "connected" : "off"); items[n].color = C_ACC; n++;
-        snprintf(items[n].left, 48, "+ System"); items[n].right[0] = 0; items[n].color = C_ACC; n++;
-        if (!hal_sd_ready()) {
-            snprintf(items[n].left, 48, "No SD card"); items[n].right[0] = 0; items[n].color = C_ERR; n++;
-        }
+        items[n++] = (launcher_item_t){LI_STORE, "App Store", "get and update apps", gfx_rgb(40, 110, 230), 0};
+        items[n] = (launcher_item_t){LI_WIFI, "WiFi", "", gfx_rgb(20, 160, 200), 0};
+        snprintf(items[n].sub, sizeof(items[n].sub), "%s", cpos_wifi_is_connected() ? "connected" : "not connected");
+        items[n++].sub_color = cpos_wifi_is_connected() ? C_OK : 0;
+        items[n++] = (launcher_item_t){LI_SYSTEM, "System", "settings and info", gfx_rgb(110, 90, 200), 0};
+        if (!hal_sd_ready()) items[n++] = (launcher_item_t){LI_NOSD, "No SD card", "insert one and reboot", C_ERR, C_ERR};
         if (sel >= n) sel = 0;
-        sel = ui_menu("CardputerOS", items, n, sel, "enter: open   fn+`: exit app");
-        if (sel < 0) { sel = 0; continue; }
+        sel = ui_launcher(items, n, sel);
         if (sel < apps_end) run_app(&s_apps[sel]);
         else if (sel == apps_end) store_screen();
         else if (sel == apps_end + 1) wifi_screen();

@@ -14,6 +14,12 @@
 
 typedef struct { char left[48]; char right[24]; uint16_t color; } ui_item_t;
 
+/* launcher tiles */
+enum { LI_APP, LI_STORE, LI_WIFI, LI_SYSTEM, LI_NOSD };
+typedef struct { int kind; char name[24]; char sub[24]; uint16_t color, sub_color; } launcher_item_t;
+int ui_launcher(const launcher_item_t *items, int n, int sel); /* index chosen with Enter */
+uint16_t launcher_color_for(const char *name);
+
 extern cpos_canvas_t *ui_cv;
 
 void cpos_ui_run(void);                 /* never returns */

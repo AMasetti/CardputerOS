@@ -90,7 +90,7 @@ static esp_err_t http_evt(esp_http_client_event_t *e) {
 static int http_get(const char *url, sink_t sink, void *ctx, int64_t *total_out, void (*progress)(int64_t got, int64_t total)) {
     dl_t d = {.sink = sink, .ctx = ctx};
     esp_http_client_config_t cfg = {.url = url, .event_handler = http_evt, .user_data = &d, .crt_bundle_attach = esp_crt_bundle_attach,
-                                    .timeout_ms = 20000, .buffer_size = 4096, .buffer_size_tx = 1024, .max_redirection_count = 6,
+                                    .timeout_ms = 20000, .buffer_size = 4096, .buffer_size_tx = 4096, .max_redirection_count = 6,
                                     .user_agent = "CardputerOS"};
     esp_http_client_handle_t c = esp_http_client_init(&cfg);
     if (!c) return -1;
@@ -253,7 +253,7 @@ static int install_app(const char *name, const int v[3]) {
     if (!ui_confirm("Permissions", m)) { unlink(tmp); return -1; }
 
     /* keep only the newest version of this app */
-    inst_t old[40];
+    static inst_t old[40];
     int n = list_installed(old, 40);
     for (int i = 0; i < n; i++) {
         if (strcmp(old[i].name, h.name)) continue;

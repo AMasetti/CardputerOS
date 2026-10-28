@@ -13,6 +13,8 @@ static const char *TAG = "runner";
 RTC_NOINIT_ATTR static uint32_t s_crash_magic;
 RTC_NOINIT_ATTR static char s_crash_app[24];
 
+void (*cpos_before_app_start)(void);
+
 static void app_task(void *arg) {
     app_ctx_t *a = arg;
     if (setjmp(a->jb) == 0) a->result = a->img.entry(cpos_api_get());
@@ -40,6 +42,8 @@ int cpos_run_app(const char *path, const char **err) {
     app_ctx_t *a = heap_caps_calloc(1, sizeof(*a), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     if (!a) { *err = "out of memory"; return -1; }
     if (cpos_load(path, &a->img, err)) { free(a); return -1; }
+    /* the caller's big buffers go only now, so the loaded image does not land in (and split) them */
+    if (cpos_before_app_start) cpos_before_app_start();
     a->perms = a->img.header.perms;
     uint32_t stack = a->img.header.stack_size;
     if (stack < 4096) stack = 8192;

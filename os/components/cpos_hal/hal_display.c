@@ -1,6 +1,6 @@
 /* ST7789V2 135x240 on SPI2, driven through esp_lcd, landscape 240x135. */
 #include "hal.h"
-#include "driver/ledc.h"
+#include "driver/gpio.h"
 #include "driver/spi_master.h"
 #include "esp_heap_caps.h"
 #include "esp_lcd_panel_io.h"
@@ -73,10 +73,10 @@ void hal_display_dump(const char *name) {
     printf("ENDFRAME\n");
 }
 #else
+/* The ADV backlight stays dark when PWM-driven from LEDC (verified on hardware), so it is plain on/off. */
 void hal_display_brightness(uint8_t v) {
     if (!s_panel) return;
-    ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_7, v);
-    ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_7);
+    gpio_set_level(PIN_LCD_BL, v ? 1 : 0);
 }
 
 void hal_display_init(void) {
@@ -84,12 +84,9 @@ void hal_display_init(void) {
     s_lock = xSemaphoreCreateMutex();
     for (int i = 0; i < 2; i++) s_dma[i] = heap_caps_malloc(LCD_W * BAND_ROWS * 2, MALLOC_CAP_DMA);
 
-    ledc_timer_config_t t = {.speed_mode = LEDC_LOW_SPEED_MODE, .duty_resolution = LEDC_TIMER_8_BIT,
-                             .timer_num = LEDC_TIMER_3, .freq_hz = 5000, .clk_cfg = LEDC_AUTO_CLK};
-    ledc_timer_config(&t);
-    ledc_channel_config_t ch = {.gpio_num = PIN_LCD_BL, .speed_mode = LEDC_LOW_SPEED_MODE, .channel = LEDC_CHANNEL_7,
-                                .timer_sel = LEDC_TIMER_3, .duty = 0, .hpoint = 0};
-    ledc_channel_config(&ch);
+    gpio_reset_pin(PIN_LCD_BL);
+    gpio_set_direction(PIN_LCD_BL, GPIO_MODE_OUTPUT);
+    gpio_set_level(PIN_LCD_BL, 0);
 
     spi_bus_config_t bus = {.mosi_io_num = PIN_LCD_MOSI, .miso_io_num = -1, .sclk_io_num = PIN_LCD_SCLK,
                             .quadwp_io_num = -1, .quadhd_io_num = -1, .max_transfer_sz = LCD_W * BAND_ROWS * 2 + 16};

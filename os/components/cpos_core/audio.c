@@ -148,8 +148,7 @@ static void audio_task(void *arg) {
     }
 }
 
-static int au_begin(void) {
-    if (!cpos_has_perm(CPOS_PERM_AUDIO_OUT)) return 0;
+static int spk_open(void) {
     if (s_spk_open) return 1;
     for (int i = 0; i < 256; i++) s_sine[i] = (int16_t)(sinf(i * 6.2831853f / 256.0f) * 32767.0f);
     rx_close();
@@ -166,6 +165,8 @@ static int au_begin(void) {
     xTaskCreatePinnedToCore(audio_task, "audio", 3072, NULL, 6, &s_task, 1);
     return 1;
 }
+
+static int au_begin(void) { return cpos_has_perm(CPOS_PERM_AUDIO_OUT) ? spk_open() : 0; }
 
 static void au_end(void) {
     s_spk_open = 0;
@@ -282,6 +283,25 @@ static int au_mic_record(int16_t *buf, size_t len, uint32_t rate) {
 }
 
 static void au_mic_end(void) { rx_close(); s_mic_rate = 0; }
+
+/* ---- system sounds (launcher clicks): no app permission involved ------------------- */
+void cpos_ui_beep(int hz, int ms) {
+    if (!spk_open()) return;
+    s_gain = 0.12f;
+    voice_t nv = {0};
+    nv.inc = (float)hz / SPK_RATE;
+    nv.remain = (int64_t)ms * SPK_RATE / 1000;
+    nv.on = 1;
+    taskENTER_CRITICAL(&s_mux);
+    s_v[0] = nv;
+    taskEXIT_CRITICAL(&s_mux);
+}
+
+/* close the speaker before an app runs, so the app starts from the default state */
+void cpos_ui_audio_off(void) {
+    if (s_spk_open) au_end();
+    s_gain = 0.25f;
+}
 
 void cpos_audio_fill(cpos_audio_api_t *a) {
     a->begin = au_begin; a->end = au_end; a->set_volume = au_vol; a->tone = au_tone; a->play_raw = au_raw;
