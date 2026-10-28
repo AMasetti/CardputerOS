@@ -161,7 +161,10 @@ static cpos_canvas_t *app_gfx_create(int w, int h, int d) {
     cpos_check_exit();
     cpos_canvas_t *c = gfx_create(w, h, d);
     if (!c) { /* an app that cannot get its canvas cannot draw: stop it cleanly instead of crashing */
-        a_log("app: out of memory for a canvas\n");
+        char m[80];
+        snprintf(m, sizeof(m), "app: cannot create a %dx%d canvas (free %u)\n", w, h, (unsigned)a_free_heap());
+        a_log(m);
+
         a_exit_app(-5);
     }
     if (c && g_app)

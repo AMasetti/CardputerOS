@@ -48,4 +48,8 @@ int hal_batt_pct(void) {
     return (int)p;
 }
 
+#ifdef CONFIG_CPOS_EMULATOR
+int hal_btn_a(void) { return 0; } /* the emulator reads every pin as low */
+#else
 int hal_btn_a(void) { return gpio_get_level(PIN_BTN_A) == 0; }
+#endif

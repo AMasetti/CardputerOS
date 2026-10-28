@@ -156,8 +156,8 @@ void hal_kbd_inject(char c) {
             if (KEYMAP[r][q].a == c) { row = r; col = q; break; }
     if (row < 0) return;
     portENTER_CRITICAL(&s_mux); s_down[row][col] = true; s_seq++; portEXIT_CRITICAL(&s_mux);
-    vTaskDelay(pdMS_TO_TICKS(120));
+    vTaskDelay(pdMS_TO_TICKS(330)); /* long enough for the slow emulator UI loop to see it, shorter than the key repeat delay */
     portENTER_CRITICAL(&s_mux); s_down[row][col] = false; s_seq++; portEXIT_CRITICAL(&s_mux);
-    vTaskDelay(pdMS_TO_TICKS(60));
+    vTaskDelay(pdMS_TO_TICKS(900));
 }
 #endif

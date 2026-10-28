@@ -72,15 +72,12 @@ static void selftest(void) {
     hal_display_dump("ui-launcher");
     hal_kbd_inject(';');                 /* wraps to the last entry: System */
     hal_kbd_inject('\n');
-    vTaskDelay(pdMS_TO_TICKS(500));
+    vTaskDelay(pdMS_TO_TICKS(1500));
     hal_display_dump("ui-system");
-    for (int i = 0; i < 4; i++) hal_kbd_inject('.');
-    hal_kbd_inject('\n');                /* change repo -> text input */
-    vTaskDelay(pdMS_TO_TICKS(300));
-    hal_kbd_inject('x');
-    hal_kbd_inject('y');
-    vTaskDelay(pdMS_TO_TICKS(400));
-    hal_display_dump("ui-input");
+    for (int i = 0; i < 5; i++) hal_kbd_inject('.');
+    hal_kbd_inject('\n');                /* Display setup */
+    vTaskDelay(pdMS_TO_TICKS(1500));
+    hal_display_dump("ui-display");
     ESP_LOGI(TAG, "SELFTEST DONE");
 }
 #endif

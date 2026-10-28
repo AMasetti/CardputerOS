@@ -4,6 +4,7 @@
 #include "esp_log.h"
 #include "esp_system.h"
 #include "hal.h"
+#include "esp_heap_caps.h"
 #include <string.h>
 
 static const char *TAG = "runner";
@@ -50,7 +51,7 @@ int cpos_run_app(const char *path, const char **err) {
     s_crash_magic = CRASH_MAGIC;
     strlcpy(s_crash_app, a->img.header.name, sizeof(s_crash_app));
     g_app = a;
-    ESP_LOGI(TAG, "start %s (stack %u, free heap %u)", a->img.header.name, (unsigned)stack, (unsigned)esp_get_free_heap_size());
+    ESP_LOGI(TAG, "start %s (stack %u, free heap %u, largest block %u)", a->img.header.name, (unsigned)stack, (unsigned)esp_get_free_heap_size(), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
 
     if (xTaskCreatePinnedToCore(app_task, "app", stack, a, 5, &a->task, 1) != pdPASS) {
         g_app = NULL;
