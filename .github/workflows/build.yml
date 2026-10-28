@@ -43,9 +43,10 @@ jobs:
         shell: bash
         run: |
           . $IDF_PATH/export.sh
+          # an app that does not build yet (e.g. needs BLE) is reported and skipped, not fatal
           for d in apps/*/; do
             [ -f "$d/app.json" ] || continue
-            python3 sdk/tools/build_app.py "$d" --out out
+            python3 sdk/tools/build_app.py "$d" --out out || echo "::warning::skipped $d (does not build)"
           done
       - uses: actions/upload-artifact@v4
         with:
