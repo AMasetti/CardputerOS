@@ -298,7 +298,7 @@ static void system_screen(void) {
     snprintf(it[n].left, 48, "Display setup..."); it[n].right[0] = 0; it[n].color = C_ACC; n++;
     snprintf(it[n].left, 48, "Reboot"); it[n].right[0] = 0; it[n].color = C_ACC; n++;
     for (;;) {
-        int s = ui_menu("System", it, n, 0, "`: back");
+        int s = ui_menu("System", it, n, 0, NULL);
         if (s == 4) {
             char r[48];
             strlcpy(r, store_repo(), sizeof(r));

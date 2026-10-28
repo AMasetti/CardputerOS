@@ -39,7 +39,17 @@ static void frame_task(void *arg) {
 
 static void ui_task(void *arg) { cpos_ui_run(); }
 
+static void watch_task(void *arg) {
+    for (int i = 0; i < 3; i++) {
+        vTaskDelay(pdMS_TO_TICKS(15000));
+        static char buf[1024];
+        vTaskList(buf);
+        printf("TASKS@%d g_app=%p exit_req=%d\n%s\n", i, (void *)g_app, g_app ? (int)g_app->exit_req : -1, buf);
+    }
+    vTaskDelete(NULL);
+}
 static void selftest(void) {
+    xTaskCreate(watch_task, "watch", 4096, NULL, 2, NULL);
     xTaskCreate(frame_task, "frames", 4096, NULL, 2, NULL);
     DIR *d = opendir("/sdcard/apps");
     struct dirent *e;
