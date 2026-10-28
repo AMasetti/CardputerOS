@@ -32,6 +32,8 @@ i2c_master_bus_handle_t hal_i2c(void);
 void hal_display_init(void);
 void hal_display_blit(int x, int y, int w, int h, const uint16_t *pix, int stride);
 void hal_display_brightness(uint8_t v);
+void hal_display_get_orient(int *flip, int *gx, int *gy);
+void hal_display_set_orient(int flip, int gx, int gy, int save);
 
 void hal_display_dump(const char *name);   /* emulator builds only */
 void hal_kbd_inject(char c);               /* emulator builds only: press and release a key */

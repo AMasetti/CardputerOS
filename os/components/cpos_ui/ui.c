@@ -249,16 +249,53 @@ static void run_app(const app_entry_t *a) {
     }
 }
 
+/* Test pattern + live adjustment of the panel orientation and window offset. */
+static void display_screen(void) {
+    int flip, gx, gy;
+    hal_display_get_orient(&flip, &gx, &gy);
+    for (;;) {
+        gfx_fill(ui_cv, C_BG);
+        gfx_rect(ui_cv, 0, 0, 240, 135, C_ACC, 0);          /* the whole panel must show this frame */
+        gfx_rect(ui_cv, 1, 1, 238, 133, C_TXT, 0);
+        gfx_fill_rect(ui_cv, 2, 2, 12, 12, C_ERR);            /* top-left red, top-right green, ... */
+        gfx_fill_rect(ui_cv, 226, 2, 12, 12, C_OK);
+        gfx_fill_rect(ui_cv, 2, 121, 12, 12, gfx_rgb(80, 140, 255));
+        gfx_fill_rect(ui_cv, 226, 121, 12, 12, 0xFFFF);
+        gfx_set_font(ui_cv, CPOS_FONT_JP12);
+        gfx_set_text_datum(ui_cv, 5);
+        gfx_set_text_color(ui_cv, C_TXT, 0, 0);
+        gfx_draw_string(ui_cv, "Display setup", 120, 28);
+        char b[64];
+        snprintf(b, sizeof(b), "flip %d   x %d   y %d", flip, gx, gy);
+        gfx_draw_string(ui_cv, b, 120, 50);
+        gfx_set_text_color(ui_cv, C_DIM, 0, 0);
+        gfx_draw_string(ui_cv, "text readable, frame complete?", 120, 72);
+        gfx_draw_string(ui_cv, "f: flip   ; . : y   , / : x", 120, 92);
+        gfx_draw_string(ui_cv, "enter: save    `: cancel", 120, 108);
+        ui_present();
+        int k = ui_key(-1);
+        if (k == 'f') flip = (flip + 1) & 3;
+        else if (k == UI_UP) gy--;
+        else if (k == UI_DOWN) gy++;
+        else if (k == UI_LEFT) gx--;
+        else if (k == UI_RIGHT) gx++;
+        else if (k == UI_ENTER) { hal_display_set_orient(flip, gx, gy, 1); return; }
+        else if (k == UI_BACK) { hal_display_get_orient(&flip, &gx, &gy); return; }
+        hal_display_set_orient(flip, gx, gy, 0);
+    }
+}
+
 static void system_screen(void) {
     char latest[16] = "";
     const esp_app_desc_t *d = esp_app_get_description();
-    ui_item_t it[6];
+    ui_item_t it[8];
     int n = 0;
     snprintf(it[n].left, 48, "OS version"); snprintf(it[n].right, 24, "%.20s", d->version); it[n].color = 0; n++;
     snprintf(it[n].left, 48, "Free heap"); snprintf(it[n].right, 24, "%u KB", (unsigned)(esp_get_free_heap_size() / 1024)); it[n].color = 0; n++;
     snprintf(it[n].left, 48, "Battery"); snprintf(it[n].right, 24, "%d mV (%d%%)", hal_batt_mv(), hal_batt_pct()); it[n].color = 0; n++;
     snprintf(it[n].left, 48, "App repo"); snprintf(it[n].right, 24, "%.22s", store_repo()); it[n].color = 0; n++;
     snprintf(it[n].left, 48, "Change app repo..."); it[n].right[0] = 0; it[n].color = C_ACC; n++;
+    snprintf(it[n].left, 48, "Display setup..."); it[n].right[0] = 0; it[n].color = C_ACC; n++;
     snprintf(it[n].left, 48, "Reboot"); it[n].right[0] = 0; it[n].color = C_ACC; n++;
     for (;;) {
         int s = ui_menu("System", it, n, 0, "`: back");
@@ -268,6 +305,8 @@ static void system_screen(void) {
             if (ui_input("GitHub repo (owner/name)", r, sizeof(r), 0)) store_set_repo(r);
             snprintf(it[3].right, 24, "%.22s", store_repo());
         } else if (s == 5) {
+            display_screen();
+        } else if (s == 6) {
             esp_restart();
         } else if (s < 0) break;
     }

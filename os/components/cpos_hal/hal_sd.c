@@ -35,7 +35,7 @@ int hal_sd_mount(void) {
     sdspi_device_config_t slot = SDSPI_DEVICE_CONFIG_DEFAULT();
     slot.gpio_cs = PIN_SD_CS;
     slot.host_id = SPI3_HOST;
-    esp_vfs_fat_sdmmc_mount_config_t mc = {.format_if_mount_failed = false, .max_files = 6, .allocation_unit_size = 16 * 1024};
+    esp_vfs_fat_sdmmc_mount_config_t mc = {.format_if_mount_failed = false, .max_files = 8, .allocation_unit_size = 16 * 1024};
     e = esp_vfs_fat_sdspi_mount("/sdcard", &host, &slot, &mc, &s_card);
     if (e != ESP_OK) {
         ESP_LOGW(TAG, "mount failed: %s", esp_err_to_name(e));

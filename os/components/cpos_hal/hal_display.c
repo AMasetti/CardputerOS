@@ -16,6 +16,10 @@
 #define LCD_H 135
 
 static const char *TAG = "display";
+#include "nvs.h"
+/* panel orientation: bit0 mirror x, bit1 mirror y; gap = window offset inside the controller RAM. Saved in NVS
+ * so a different panel batch can be corrected on the device itself (System > Display setup). */
+static int s_flip = 1, s_gap_x = LCD_GAP_X, s_gap_y = LCD_GAP_Y;
 static esp_lcd_panel_handle_t s_panel;
 static SemaphoreHandle_t s_slots; /* counts free DMA buffers */
 static SemaphoreHandle_t s_lock;
@@ -34,6 +38,8 @@ static uint16_t s_shadow[LCD_W * LCD_H];
 
 void hal_display_init(void) {}
 void hal_display_brightness(uint8_t v) {}
+void hal_display_get_orient(int *flip, int *gx, int *gy) { *flip = 1; *gx = 40; *gy = 53; }
+void hal_display_set_orient(int flip, int gx, int gy, int save) {}
 void hal_display_blit(int x, int y, int w, int h, const uint16_t *pix, int stride) {
     for (int r = 0; r < h && y + r < LCD_H; r++)
         for (int q = 0; q < w && x + q < LCD_W; q++) s_shadow[(y + r) * LCD_W + x + q] = pix[r * stride + q];
@@ -101,8 +107,16 @@ void hal_display_init(void) {
     esp_lcd_panel_init(s_panel);
     esp_lcd_panel_invert_color(s_panel, true);
     esp_lcd_panel_swap_xy(s_panel, true);
-    esp_lcd_panel_mirror(s_panel, true, false);
-    esp_lcd_panel_set_gap(s_panel, LCD_GAP_X, LCD_GAP_Y);
+    nvs_handle_t nh;
+    if (nvs_open("display", NVS_READONLY, &nh) == ESP_OK) {
+        int32_t v;
+        if (nvs_get_i32(nh, "flip", &v) == ESP_OK) s_flip = v & 3;
+        if (nvs_get_i32(nh, "gx", &v) == ESP_OK) s_gap_x = v;
+        if (nvs_get_i32(nh, "gy", &v) == ESP_OK) s_gap_y = v;
+        nvs_close(nh);
+    }
+    esp_lcd_panel_mirror(s_panel, s_flip & 1, s_flip & 2);
+    esp_lcd_panel_set_gap(s_panel, s_gap_x, s_gap_y);
 
     /* start black, then light the backlight */
     static uint16_t black[LCD_W * BAND_ROWS];
@@ -111,6 +125,21 @@ void hal_display_init(void) {
     esp_lcd_panel_disp_on_off(s_panel, true);
     hal_display_brightness(160);
     ESP_LOGI(TAG, "ST7789 ready %dx%d", LCD_W, LCD_H);
+}
+
+void hal_display_get_orient(int *flip, int *gx, int *gy) { *flip = s_flip; *gx = s_gap_x; *gy = s_gap_y; }
+
+void hal_display_set_orient(int flip, int gx, int gy, int save) {
+    s_flip = flip & 3; s_gap_x = gx; s_gap_y = gy;
+    if (s_panel) {
+        esp_lcd_panel_mirror(s_panel, s_flip & 1, s_flip & 2);
+        esp_lcd_panel_set_gap(s_panel, s_gap_x, s_gap_y);
+    }
+    nvs_handle_t nh;
+    if (save && nvs_open("display", NVS_READWRITE, &nh) == ESP_OK) {
+        nvs_set_i32(nh, "flip", s_flip); nvs_set_i32(nh, "gx", s_gap_x); nvs_set_i32(nh, "gy", s_gap_y);
+        nvs_commit(nh); nvs_close(nh);
+    }
 }
 
 void hal_display_blit(int x, int y, int w, int h, const uint16_t *pix, int stride) {

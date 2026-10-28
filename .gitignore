@@ -9,3 +9,4 @@ dist/
 __pycache__/
 os/build_qemu/
 os/sdkconfig_qemu_gen*
+release-local/
