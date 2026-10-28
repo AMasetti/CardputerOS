@@ -27,7 +27,48 @@ static bool on_done(esp_lcd_panel_io_handle_t io, esp_lcd_panel_io_event_data_t 
     return woken == pdTRUE;
 }
 
+#ifdef CONFIG_CPOS_EMULATOR
+#include "mbedtls/base64.h"
+#include <stdio.h>
+static uint16_t s_shadow[LCD_W * LCD_H];
+
+void hal_display_init(void) {}
+void hal_display_brightness(uint8_t v) {}
+void hal_display_blit(int x, int y, int w, int h, const uint16_t *pix, int stride) {
+    for (int r = 0; r < h && y + r < LCD_H; r++)
+        for (int q = 0; q < w && x + q < LCD_W; q++) s_shadow[(y + r) * LCD_W + x + q] = pix[r * stride + q];
+}
+/* print the last frame run-length encoded (count-1, lo, hi) and base64'd so a script can rebuild it */
+static unsigned char s_acc[90];
+static size_t s_acc_n;
+static void emit(unsigned char byte, int flush) {
+    if (!flush) s_acc[s_acc_n++] = byte;
+    if (s_acc_n == sizeof(s_acc) || (flush && s_acc_n)) {
+        unsigned char out[128];
+        size_t n = 0;
+        mbedtls_base64_encode(out, sizeof(out), &n, s_acc, s_acc_n);
+        printf("F:%.*s\n", (int)n, out);
+        s_acc_n = 0;
+    }
+}
+void hal_display_dump(const char *name) {
+    printf("FRAME %s\n", name);
+    s_acc_n = 0;
+    size_t total = LCD_W * LCD_H;
+    for (size_t i = 0; i < total;) {
+        size_t run = 1;
+        while (i + run < total && run < 256 && s_shadow[i + run] == s_shadow[i]) run++;
+        emit((unsigned char)(run - 1), 0);
+        emit(s_shadow[i] & 0xFF, 0);
+        emit(s_shadow[i] >> 8, 0);
+        i += run;
+    }
+    emit(0, 1);
+    printf("ENDFRAME\n");
+}
+#else
 void hal_display_brightness(uint8_t v) {
+    if (!s_panel) return;
     ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_7, v);
     ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_7);
 }
@@ -95,3 +136,4 @@ void hal_display_blit(int x, int y, int w, int h, const uint16_t *pix, int strid
     xSemaphoreGive(s_slots);
     xSemaphoreGive(s_lock);
 }
+#endif

@@ -1,0 +1,10 @@
+{
+  "name": "shell-rc",
+  "displayName": "Shell RC",
+  "version": "0.1.0",
+  "description": "Control por BLE de los autos Shell Motorsport: generación 2024 (QCAR, AES) y 2025 (SL-, luces, turbo, donut, modo y batería).",
+  "perms": [
+    "ble"
+  ],
+  "stack": 8192
+}

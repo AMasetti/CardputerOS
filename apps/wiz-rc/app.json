@@ -1,0 +1,10 @@
+{
+  "name": "wiz-rc",
+  "displayName": "WiZ RC",
+  "version": "0.1.0",
+  "description": "Control remoto por WiFi (UDP, puerto 38899) para luces WiZ: busca las lámparas en la red y controla encendido, color, blanco, brillo y escenas.",
+  "perms": [
+    "wifi"
+  ],
+  "stack": 8192
+}

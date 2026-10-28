@@ -11,7 +11,8 @@ void gfx_destroy(cpos_canvas_t *c);
 cpos_canvas_t *gfx_screen(void);
 void gfx_push(cpos_canvas_t *src, cpos_canvas_t *dst, int x, int y, int transparent);
 void gfx_flush_screen(void); /* send pending direct-draw changes to the panel */
-void gfx_init(void);         /* starts the screen flush task */
+void gfx_init(void);
+void gfx_screen_release(void);         /* starts the screen flush task */
 
 void gfx_fill(cpos_canvas_t *c, uint32_t color);
 void gfx_fill_rect(cpos_canvas_t *c, int x, int y, int w, int h, uint32_t color);

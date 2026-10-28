@@ -1,0 +1,10 @@
+{
+  "name": "tv-b-gone",
+  "displayName": "TV-B-Gone",
+  "version": "0.1.0",
+  "description": "Apaga (o prende) televisores por infrarrojo: dispara los códigos de encendido del TV-B-Gone original para América, Europa o ambas.",
+  "perms": [
+    "ir"
+  ],
+  "stack": 8192
+}

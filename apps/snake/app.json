@@ -3,9 +3,6 @@
   "displayName": "Snake",
   "version": "0.1.0",
   "description": "Snake clásico: flechas del teclado (; . , /) o WASD, velocidad creciente, récord guardado en la flash y sonido.",
-  "target": "cardputer-adv",
-  "builder": "platformio",
-  "env": "cardputer",
   "perms": [
     "audio_out"
   ],

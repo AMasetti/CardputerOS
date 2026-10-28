@@ -1,0 +1,10 @@
+{
+  "name": "tetrix",
+  "displayName": "Tetrix",
+  "version": "0.1.0",
+  "description": "Tetrix lateral: tablero de 10x20 acostado que usa todo el ancho de la pantalla, con sombra, bolsa de 7, niveles y récord en la flash.",
+  "perms": [
+    "audio_out"
+  ],
+  "stack": 8192
+}

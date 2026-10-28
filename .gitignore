@@ -7,3 +7,5 @@ os/dependencies.lock
 dist/
 *.pyc
 __pycache__/
+os/build_qemu/
+os/sdkconfig_qemu_gen*

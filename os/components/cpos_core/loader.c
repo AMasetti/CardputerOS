@@ -172,27 +172,33 @@ int cpos_load(const char *path, cpos_image_t *img, const char **err) {
     uint32_t code_off = (uint32_t)img->code - code_ph.p_vaddr;
     uint32_t data_off = img->data ? (uint32_t)img->data - data_ph.p_vaddr : 0;
     uint32_t nreloc = 0;
+    uint32_t rbuf[255 * 3]; /* 255 entries of 12 bytes */
     for (int i = 0; i < eh.e_shnum; i++) {
         Elf32_Shdr_t s;
         if (rd(f, eh.e_shoff + i * sizeof(s), &s, sizeof(s))) { *err = "cannot read sections"; goto out; }
         if (s.sh_type != SHT_RELA) continue;
-        for (uint32_t o = 0; o < s.sh_size; o += sizeof(Elf32_Rela_t)) {
-            Elf32_Rela_t r;
-            if (rd(f, s.sh_offset + o, &r, sizeof(r))) { *err = "short read (reloc)"; goto out; }
-            if ((r.r_info & 0xFF) != R_XTENSA_32) continue;
-            uint32_t where = r.r_offset;
-            uint32_t *p;
-            if (where >= code_ph.p_vaddr && where + 4 <= code_ph.p_vaddr + code_ph.p_memsz)
-                p = (uint32_t *)((uint8_t *)img->code + (where - code_ph.p_vaddr));
-            else if (img->data && where >= data_ph.p_vaddr && where + 4 <= data_ph.p_vaddr + data_ph.p_memsz)
-                p = (uint32_t *)((uint8_t *)img->data + (where - data_ph.p_vaddr));
-            else continue; /* debug sections etc. */
-            uint32_t v = *(volatile uint32_t *)p;
-            if (v >= code_ph.p_vaddr && v < code_ph.p_vaddr + code_ph.p_memsz + 4) v += code_off;
-            else if (img->data && v >= data_ph.p_vaddr && v < data_ph.p_vaddr + data_ph.p_memsz + 4) v += data_off;
-            else continue; /* not an address into the image */
-            *(volatile uint32_t *)p = v;
-            nreloc++;
+        /* relocation tables are read in blocks: one seek per entry would crawl on an SD card */
+        for (uint32_t base = 0; base < s.sh_size; base += sizeof(rbuf)) {
+            uint32_t n = s.sh_size - base < sizeof(rbuf) ? s.sh_size - base : sizeof(rbuf);
+            if (rd(f, s.sh_offset + base, rbuf, n)) { *err = "short read (reloc)"; goto out; }
+            for (uint32_t o = 0; o + sizeof(Elf32_Rela_t) <= n; o += sizeof(Elf32_Rela_t)) {
+                Elf32_Rela_t r;
+                memcpy(&r, (uint8_t *)rbuf + o, sizeof(r));
+                if ((r.r_info & 0xFF) != R_XTENSA_32) continue;
+                uint32_t where = r.r_offset;
+                uint32_t *p;
+                if (where >= code_ph.p_vaddr && where + 4 <= code_ph.p_vaddr + code_ph.p_memsz)
+                    p = (uint32_t *)((uint8_t *)img->code + (where - code_ph.p_vaddr));
+                else if (img->data && where >= data_ph.p_vaddr && where + 4 <= data_ph.p_vaddr + data_ph.p_memsz)
+                    p = (uint32_t *)((uint8_t *)img->data + (where - data_ph.p_vaddr));
+                else continue; /* debug sections etc. */
+                uint32_t v = *(volatile uint32_t *)p;
+                if (v >= code_ph.p_vaddr && v < code_ph.p_vaddr + code_ph.p_memsz + 4) v += code_off;
+                else if (img->data && v >= data_ph.p_vaddr && v < data_ph.p_vaddr + data_ph.p_memsz + 4) v += data_off;
+                else continue; /* not an address into the image */
+                *(volatile uint32_t *)p = v;
+                nreloc++;
+            }
         }
     }
     __asm__ volatile("memw\n\tisync\n\t" ::: "memory");

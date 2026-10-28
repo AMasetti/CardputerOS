@@ -116,6 +116,9 @@ typedef struct {
     void (*clear_clip)(cpos_canvas_t *c);
     void (*qrcode)(cpos_canvas_t *c, const char *text, int x, int y, int size);
     void (*set_brightness)(uint8_t v);
+    /* copy a rectangle of RGB565 pixels; swap = bytes are big-endian; transparent < 0: opaque */
+    void (*blit)(cpos_canvas_t *c, int x, int y, int w, int h, const uint16_t *pix, int swap, int transparent);
+    uintptr_t reserved[4]; /* room for minor additions */
 } cpos_gfx_api_t;
 
 /* ---- audio, sensors, power, io ---------------------------------------------- */
@@ -131,6 +134,7 @@ typedef struct {
     int (*mic_begin)(uint32_t rate);
     int (*mic_record)(int16_t *buf, size_t len, uint32_t rate); /* blocking until queued */
     void (*mic_end)(void);
+    uintptr_t reserved[4]; /* room for minor additions */
 } cpos_audio_api_t;
 
 typedef struct {
@@ -138,12 +142,14 @@ typedef struct {
     int (*enabled)(void);
     void (*accel)(float *x, float *y, float *z); /* g */
     void (*gyro)(float *x, float *y, float *z);  /* deg/s */
+    uintptr_t reserved[4]; /* room for minor additions */
 } cpos_imu_api_t;
 
 typedef struct {
     int (*battery_level)(void);   /* 0..100 */
     int (*battery_mv)(void);
     int (*button_a)(void);        /* side button (GPIO0), 1 = pressed */
+    uintptr_t reserved[4]; /* room for minor additions */
 } cpos_power_api_t;
 
 typedef struct {
@@ -153,6 +159,7 @@ typedef struct {
     int (*pwm_setup)(int channel, uint32_t freq, int bits);
     void (*pwm_attach)(int pin, int channel);
     void (*pwm_write)(int channel, uint32_t duty);
+    uintptr_t reserved[4]; /* room for minor additions */
 } cpos_gpio_api_t;
 
 /* preferences: key/value store private to the app */
@@ -164,6 +171,7 @@ typedef struct {
     int (*set)(int h, const char *key, int type, const void *val, size_t len);
     int (*remove)(int h, const char *key);
     int (*clear)(int h);
+    uintptr_t reserved[4]; /* room for minor additions */
 } cpos_prefs_api_t;
 
 /* ---- network ------------------------------------------------------------------- */
@@ -196,6 +204,7 @@ typedef struct {
     int (*setsockopt)(int fd, int level, int opt, const void *val, uint32_t len);
     int (*fcntl)(int fd, int cmd, int arg);
     int (*close)(int fd);
+    uintptr_t reserved[4]; /* room for minor additions */
 } cpos_net_api_t;
 
 /* ---- libc ---------------------------------------------------------------------- */
@@ -223,6 +232,7 @@ struct cpos_api {
     int (*exit_requested)(void);
     void (*exit_app)(int code); /* does not return */
     void (*kbd_state)(cpos_kbd_t *out);
+    uintptr_t reserved[8]; /* room for minor additions to the base table */
 
     cpos_gfx_api_t gfx;
     cpos_audio_api_t audio;

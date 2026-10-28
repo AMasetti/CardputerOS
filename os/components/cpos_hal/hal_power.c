@@ -2,7 +2,7 @@
 #include "driver/gpio.h"
 #include "sdkconfig.h"
 
-#ifdef CONFIG_CPOS_SELFTEST
+#ifdef CONFIG_CPOS_EMULATOR
 /* the emulator has no ADC calibration hardware: report a fixed battery and keep esp_adc out of the image */
 int hal_batt_mv(void) { return 3900; }
 #else

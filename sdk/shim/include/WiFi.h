@@ -23,6 +23,15 @@ public:
         return String(b);
     }
     uint32_t raw() const { return a_; }
+    bool fromString(const char *s) {
+        unsigned v[4];
+        char tail;
+        if (sscanf(s, "%u.%u.%u.%u%c", &v[0], &v[1], &v[2], &v[3], &tail) != 4) return false;
+        for (int i = 0; i < 4; i++) if (v[i] > 255) return false;
+        *this = IPAddress(v[0], v[1], v[2], v[3]);
+        return true;
+    }
+    bool fromString(const String &s) { return fromString(s.c_str()); }
 
 private:
     uint32_t a_;  // network byte order, as lwip stores it

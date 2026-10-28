@@ -86,6 +86,9 @@ static void kbd_task(void *arg) {
 }
 
 void hal_kbd_init(void) {
+#ifdef CONFIG_CPOS_EMULATOR
+    return;
+#endif
     i2c_device_config_t dc = {.dev_addr_length = I2C_ADDR_BIT_LEN_7, .device_address = TCA_ADDR, .scl_speed_hz = 400000};
     if (i2c_master_bus_add_device(s_bus, &dc, &s_tca) != ESP_OK) return;
     uint8_t dummy;
@@ -141,3 +144,20 @@ bool hal_kbd_esc(void) {
     portEXIT_CRITICAL(&s_mux);
     return fn && bt;
 }
+
+#ifdef CONFIG_CPOS_EMULATOR
+/* scripted key presses for the emulator: find the key in the map, press, hold, release */
+void hal_kbd_inject(char c) {
+    int row = -1, col = -1;
+    if (c == '\n') { row = 2; col = 13; }
+    else if (c == 8) { row = 0; col = 13; }
+    else for (int r = 0; r < 4 && row < 0; r++)
+        for (int q = 0; q < 14; q++)
+            if (KEYMAP[r][q].a == c) { row = r; col = q; break; }
+    if (row < 0) return;
+    portENTER_CRITICAL(&s_mux); s_down[row][col] = true; s_seq++; portEXIT_CRITICAL(&s_mux);
+    vTaskDelay(pdMS_TO_TICKS(120));
+    portENTER_CRITICAL(&s_mux); s_down[row][col] = false; s_seq++; portEXIT_CRITICAL(&s_mux);
+    vTaskDelay(pdMS_TO_TICKS(60));
+}
+#endif

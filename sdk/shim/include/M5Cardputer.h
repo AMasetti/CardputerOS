@@ -16,6 +16,8 @@ enum textdatum_t : uint8_t {
 namespace lgfx {
 struct IFont { int id; };
 inline uint16_t color565(uint8_t r, uint8_t g, uint8_t b) { return (uint16_t)(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)); }
+struct rgb565_t { uint16_t raw; };
+struct swap565_t { uint16_t raw; };
 inline uint32_t color888(uint8_t r, uint8_t g, uint8_t b) { return 0x1000000u | ((uint32_t)r << 16) | ((uint32_t)g << 8) | b; }
 }  // namespace lgfx
 
@@ -34,6 +36,31 @@ inline constexpr lgfx::IFont lgfxJapanGothicP_16{CPOS_FONT_JP16};
 }  // namespace fonts
 namespace lgfx { namespace fonts = ::fonts; }
 using lgfx::color565;
+
+#define TFT_BLACK 0x0000
+#define TFT_NAVY 0x000F
+#define TFT_DARKGREEN 0x03E0
+#define TFT_DARKCYAN 0x03EF
+#define TFT_MAROON 0x7800
+#define TFT_PURPLE 0x780F
+#define TFT_OLIVE 0x7BE0
+#define TFT_LIGHTGREY 0xD69A
+#define TFT_DARKGREY 0x7BEF
+#define TFT_BLUE 0x001F
+#define TFT_GREEN 0x07E0
+#define TFT_CYAN 0x07FF
+#define TFT_RED 0xF800
+#define TFT_MAGENTA 0xF81F
+#define TFT_YELLOW 0xFFE0
+#define TFT_WHITE 0xFFFF
+#define TFT_ORANGE 0xFDA0
+#define TFT_GREENYELLOW 0xB7E0
+#define TFT_PINK 0xFE19
+#define TFT_BROWN 0x9A60
+#define TFT_GOLD 0xFEA0
+#define TFT_SILVER 0xC618
+#define TFT_SKYBLUE 0x867D
+#define TFT_VIOLET 0x915C
 
 class LGFXBase {
 public:
@@ -88,6 +115,10 @@ public:
     void clearClipRect() { GFXAPI.clear_clip(target()); }
     void qrcode(const char *text, int x, int y, int w, int = 0) { GFXAPI.qrcode(target(), text, x, y, w); }
     void qrcode(const String &text, int x, int y, int w, int v = 0) { qrcode(text.c_str(), x, y, w, v); }
+    void pushImage(int x, int y, int w, int h, const lgfx::rgb565_t *d) { GFXAPI.blit(target(), x, y, w, h, (const uint16_t *)d, 0, -1); }
+    void pushImage(int x, int y, int w, int h, const lgfx::swap565_t *d) { GFXAPI.blit(target(), x, y, w, h, (const uint16_t *)d, 1, -1); }
+    void pushImage(int x, int y, int w, int h, const uint16_t *d) { GFXAPI.blit(target(), x, y, w, h, d, 1, -1); }
+    void pushImage(int x, int y, int w, int h, const uint16_t *d, uint16_t transparent) { GFXAPI.blit(target(), x, y, w, h, d, 1, transparent); }
     // image decoders are not part of the OS yet
     bool drawPng(const uint8_t *, uint32_t, int = 0, int = 0, int = 0, int = 0, int = 0, int = 0, float = 1.0f, float = 0.0f) { return false; }
     bool drawJpg(const uint8_t *, uint32_t, int = 0, int = 0, int = 0, int = 0, int = 0, int = 0, float = 1.0f, float = 0.0f) { return false; }

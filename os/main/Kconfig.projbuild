@@ -1,8 +1,11 @@
 menu "CardputerOS"
+    config CPOS_EMULATOR
+        bool "Emulator build: no display, keyboard or ADC; frames are dumped to the log"
+        default n
     config CPOS_SD_FROM_FLASH
         bool "Mount /sdcard from a FAT partition in flash (emulator tests only)"
         default n
     config CPOS_SELFTEST
-        bool "Run every app in /sdcard/apps once for a few seconds and print results (emulator tests only)"
+        bool "Run every app in /sdcard/apps once and print results (emulator tests only)"
         default n
 endmenu

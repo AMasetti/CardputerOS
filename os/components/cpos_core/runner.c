@@ -64,10 +64,8 @@ int cpos_run_app(const char *path, const char **err) {
     while (!a->done) {
         ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(30));
         if (a->done) break;
-        if (!a->exit_req && hal_kbd_esc()) {
-            a->exit_req = 1;
-            req_at = xTaskGetTickCount();
-        }
+        if (!a->exit_req && hal_kbd_esc()) a->exit_req = 1;
+        if (a->exit_req && !req_at) req_at = xTaskGetTickCount();
         if (a->exit_req && xTaskGetTickCount() - req_at > pdMS_TO_TICKS(2000)) {
             ESP_LOGE(TAG, "app did not stop, restarting");
             esp_restart();

@@ -159,7 +159,7 @@ int ui_menu(const char *title, ui_item_t *items, int n, int sel, const char *hin
         if (hint) {
             gfx_set_text_datum(ui_cv, 0);
             gfx_set_text_color(ui_cv, C_DIM, 0, 0);
-            gfx_draw_string(ui_cv, hint, 6, 125);
+            gfx_draw_string(ui_cv, hint, 6, 121);
         }
         ui_present();
         int k = ui_key(-1);
@@ -232,12 +232,20 @@ static void scan_apps(void) {
 
 static void run_app(const app_entry_t *a) {
     ui_status("Starting...", a->name);
+    /* the launcher's own canvas is 64 KB: give it back while the app runs */
+    gfx_destroy(ui_cv);
+    ui_cv = NULL;
     const char *err = NULL;
     int rc = cpos_run_app(a->path, &err);
+    ui_cv = gfx_create(CPOS_SCREEN_W, CPOS_SCREEN_H, 16);
     if (rc < 0 && err) {
         char m[96];
         snprintf(m, sizeof(m), "%s: %s", a->name, err);
         ui_message("Could not start", m);
+    } else if (rc != 0) {
+        char m[96];
+        snprintf(m, sizeof(m), "%s stopped with an error (%d)%s", a->name, rc, rc == -5 ? ": not enough memory" : "");
+        ui_message("App stopped", m);
     }
 }
 

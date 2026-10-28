@@ -160,6 +160,10 @@ static void app_close_files(app_ctx_t *a) {
 static cpos_canvas_t *app_gfx_create(int w, int h, int d) {
     cpos_check_exit();
     cpos_canvas_t *c = gfx_create(w, h, d);
+    if (!c) { /* an app that cannot get its canvas cannot draw: stop it cleanly instead of crashing */
+        a_log("app: out of memory for a canvas\n");
+        a_exit_app(-5);
+    }
     if (c && g_app)
         for (int i = 0; i < APP_MAX_CANVAS; i++)
             if (!g_app->canvases[i]) { g_app->canvases[i] = c; break; }
@@ -295,6 +299,7 @@ const cpos_api_t *cpos_api_get(void) {
 void cpos_app_release(app_ctx_t *a) {
     app_close_files(a);
     app_close_canvases(a);
+    gfx_screen_release();
     cpos_app_cleanup_net(a);
     cpos_app_cleanup_audio(a);
     cpos_app_cleanup_gpio(a);

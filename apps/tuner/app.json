@@ -1,0 +1,11 @@
+{
+  "name": "tuner",
+  "displayName": "Afinador",
+  "version": "0.1.0",
+  "description": "Afinador con el micrófono: nota en grande, medidor de cents, modo cromático y afinaciones de guitarra, bajo y ukelele, tono de referencia y A4 ajustable.",
+  "perms": [
+    "audio_out",
+    "audio_in"
+  ],
+  "stack": 8192
+}

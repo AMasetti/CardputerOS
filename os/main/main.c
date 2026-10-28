@@ -14,9 +14,33 @@
 static const char *TAG = "cpos";
 
 #ifdef CONFIG_CPOS_SELFTEST
+/*
+ * Emulator self test: run every app once, dumping a frame while it runs, then drive the launcher
+ * screens with scripted keys. Output goes to the log (FRAME blocks) for offline inspection.
+ */
 #include "esp_timer.h"
-static void kill_cb(void *arg) { if (g_app) g_app->exit_req = 1; }
+static int64_t s_start_us;
+static char s_name[40];
+static volatile int s_dumped;
+
+static void kill_cb(void *arg) {
+    if (g_app && esp_timer_get_time() - s_start_us > 2200000) g_app->exit_req = 1;
+}
+
+static void frame_task(void *arg) {
+    for (;;) {
+        vTaskDelay(pdMS_TO_TICKS(100));
+        if (g_app && !s_dumped && esp_timer_get_time() - s_start_us > 1600000) {
+            s_dumped = 1;
+            hal_display_dump(s_name);
+        }
+    }
+}
+
+static void ui_task(void *arg) { cpos_ui_run(); }
+
 static void selftest(void) {
+    xTaskCreate(frame_task, "frames", 4096, NULL, 2, NULL);
     DIR *d = opendir("/sdcard/apps");
     struct dirent *e;
     int ok = 0, bad = 0;
@@ -28,8 +52,11 @@ static void selftest(void) {
         esp_timer_handle_t t;
         esp_timer_create_args_t a = {.callback = kill_cb, .name = "kill"};
         esp_timer_create(&a, &t);
-        esp_timer_start_once(t, 3000000);
+        esp_timer_start_periodic(t, 500000);
         const char *err = NULL;
+        strlcpy(s_name, e->d_name, sizeof(s_name));
+        s_dumped = 0;
+        s_start_us = esp_timer_get_time();
         int rc = cpos_run_app(path, &err);
         esp_timer_stop(t);
         esp_timer_delete(t);
@@ -37,7 +64,24 @@ static void selftest(void) {
         if (rc < 0) bad++; else ok++;
     }
     if (d) closedir(d);
-    ESP_LOGI(TAG, "SELFTEST DONE ok=%d bad=%d", ok, bad);
+    ESP_LOGI(TAG, "SELFTEST APPS ok=%d bad=%d", ok, bad);
+
+    /* launcher and system screens */
+    xTaskCreate(ui_task, "ui", 8192, NULL, 4, NULL);
+    vTaskDelay(pdMS_TO_TICKS(2500));
+    hal_display_dump("ui-launcher");
+    hal_kbd_inject(';');                 /* wraps to the last entry: System */
+    hal_kbd_inject('\n');
+    vTaskDelay(pdMS_TO_TICKS(500));
+    hal_display_dump("ui-system");
+    for (int i = 0; i < 4; i++) hal_kbd_inject('.');
+    hal_kbd_inject('\n');                /* change repo -> text input */
+    vTaskDelay(pdMS_TO_TICKS(300));
+    hal_kbd_inject('x');
+    hal_kbd_inject('y');
+    vTaskDelay(pdMS_TO_TICKS(400));
+    hal_display_dump("ui-input");
+    ESP_LOGI(TAG, "SELFTEST DONE");
 }
 #endif
 
@@ -48,18 +92,14 @@ void app_main(void) {
         nvs_flash_init();
     }
     cpos_hal_init();
-#ifndef CONFIG_CPOS_SELFTEST
     hal_display_init();
-    hal_kbd_init();
-#endif
     gfx_init();
+    hal_kbd_init();
     int sd = hal_sd_mount();
     ESP_LOGI(TAG, "CardputerOS boot, sd=%d, free heap %u", sd, (unsigned)esp_get_free_heap_size());
 #ifdef CONFIG_CPOS_SELFTEST
     selftest();
-    return;
 #else
-    /* bring the saved WiFi up in the background so the store opens instantly */
     cpos_ui_run();
 #endif
 }

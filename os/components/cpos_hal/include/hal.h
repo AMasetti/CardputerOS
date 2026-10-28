@@ -33,6 +33,8 @@ void hal_display_init(void);
 void hal_display_blit(int x, int y, int w, int h, const uint16_t *pix, int stride);
 void hal_display_brightness(uint8_t v);
 
+void hal_display_dump(const char *name);   /* emulator builds only */
+void hal_kbd_inject(char c);               /* emulator builds only: press and release a key */
 void hal_kbd_init(void);
 void hal_kbd_get(cpos_kbd_t *out);
 bool hal_kbd_esc(void);               /* Fn + ` held: leave the running app */

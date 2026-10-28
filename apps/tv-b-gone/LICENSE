@@ -1,0 +1,20 @@
+TV-B-Gone for Cardputer-Adv
+Creative Commons Attribution-ShareAlike 2.5
+https://creativecommons.org/licenses/by-sa/2.5/
+
+This app is an adaptation of TV-B-Gone and is distributed under the same
+license as the work it is based on:
+
+- TV-B-Gone Firmware 1.2 and its database of POWER codes,
+  (c) 2009 Mitch Altman and Limor Fried.
+- TV-B-Gone for Arduino, ported by Ken Shirriff (http://arcfn.com) and
+  updated by Gabriel Staples: https://github.com/shirriff/Arduino-TV-B-Gone
+
+Changes in this adaptation: the code database (src/world_ir_codes.h) keeps
+the original timing data, with the IrCode struct changed to store the carrier
+frequency in Hz. The transmitter, user interface and Cardputer support
+(src/main.cpp, src/ir_code.h) were written for this app by Augusto Masetti
+(https://amasetti.com) and are shared under the same license.
+
+TV-B-Gone is a registered trademark of Cornfield Electronics. This app is not
+affiliated with or endorsed by its owners.

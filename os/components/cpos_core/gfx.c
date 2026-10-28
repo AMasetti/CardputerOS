@@ -60,7 +60,7 @@ cpos_canvas_t *gfx_create(int w, int h, int depth) {
 }
 
 void gfx_destroy(cpos_canvas_t *c) {
-    if (!c || c == s_screen) return;
+    if (!c || (c == s_screen && c->is_screen)) return;
     free(c->buf);
     free(c);
 }
@@ -99,6 +99,17 @@ static void flush_task(void *arg) {
         gfx_flush_screen();
         xSemaphoreGive(s_screen_lock);
     }
+}
+
+/* the direct-draw framebuffer only exists while an app draws straight to the display */
+void gfx_screen_release(void) {
+    if (!s_screen) return;
+    xSemaphoreTake(s_screen_lock, portMAX_DELAY);
+    cpos_canvas_t *c = s_screen;
+    s_screen = NULL;
+    xSemaphoreGive(s_screen_lock);
+    c->is_screen = 0;
+    gfx_destroy(c);
 }
 
 void gfx_init(void) {
@@ -242,6 +253,7 @@ void gfx_round_rect(cpos_canvas_t *c, int x, int y, int w, int h, int r, uint32_
     if (fill) {
         /* corners: circles of radius r placed at the four corners, plus the middle bands */
         gfx_fill_rect(c, x + r, y, w - 2 * r, h, color);
+        gfx_fill_rect(c, x, y + r, w, h - 2 * r, color); /* side strips between the corners */
         int x_l = x + r, x_r = x + w - 1 - r, y_t = y + r, y_b = y + h - 1 - r;
         int xs = 0, ys = r, d = 1 - r;
         while (xs <= ys) {
@@ -533,6 +545,23 @@ int gfx_draw_string(cpos_canvas_t *c, const char *s, int x, int y) {
     return total;
 }
 
+static void blit(cpos_canvas_t *c, int x, int y, int w, int h, const uint16_t *pix, int swap, int transparent) {
+    uint16_t tc = (uint16_t)transparent;
+    for (int r = 0; r < h; r++) {
+        int yy = y + r;
+        if (yy < c->cy0 || yy >= c->cy1) continue;
+        for (int q = 0; q < w; q++) {
+            int xx = x + q;
+            if (xx < c->cx0 || xx >= c->cx1) continue;
+            uint16_t v = pix[r * w + q];
+            if (swap) v = __builtin_bswap16(v);
+            if (transparent >= 0 && v == tc) continue;
+            c->buf[yy * c->w + xx] = v;
+        }
+    }
+    mark_dirty(c, x < 0 ? 0 : x, y < 0 ? 0 : y, x + w > c->w ? c->w : x + w, y + h > c->h ? c->h : y + h);
+}
+
 /* ---- QR codes (encoder added in qr.c) ------------------------------------ */
 void gfx_qrcode(cpos_canvas_t *c, const char *text, int x, int y, int size);
 
@@ -573,4 +602,5 @@ void gfx_fill_api(cpos_gfx_api_t *a) {
     a->clear_clip = gfx_clear_clip;
     a->qrcode = gfx_qrcode;
     a->set_brightness = hal_display_brightness;
+    a->blit = blit;
 }
