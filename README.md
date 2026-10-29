@@ -1,3 +1,25 @@
+<p align="center">
+  <img src="docs/assets/banner.png" alt="CardputerOS: flash once, apps live on the SD card" width="100%">
+</p>
+
+<p align="center">
+  <a href="https://github.com/AMasetti/CardputerOS/actions/workflows/build.yml"><img src="https://github.com/AMasetti/CardputerOS/actions/workflows/build.yml/badge.svg" alt="build"></a>
+  <a href="https://github.com/AMasetti/CardputerOS/releases/latest"><img src="https://img.shields.io/github/v/release/AMasetti/CardputerOS?color=ff8c28&label=release" alt="latest release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache-2.0"></a>
+  <img src="https://img.shields.io/badge/ESP--IDF-5.4-red" alt="ESP-IDF 5.4">
+  <img src="https://img.shields.io/badge/chip-ESP32--S3-orange" alt="ESP32-S3">
+  <img src="https://img.shields.io/badge/device-M5Stack%20Cardputer%20ADV-1b2030" alt="M5Stack Cardputer ADV">
+  <a href="https://github.com/AMasetti/CardputerOS/stargazers"><img src="https://img.shields.io/github/stars/AMasetti/CardputerOS?style=flat&color=ffb347" alt="stars"></a>
+</p>
+
+<p align="center">
+  <a href="#flash-the-os-once">Flash</a> ·
+  <a href="#apps">Apps</a> ·
+  <a href="#writing-an-app">Write an app</a> ·
+  <a href="docs/architecture.md">Architecture</a> ·
+  <a href="CONTRIBUTING.md">Contribute</a>
+</p>
+
 # CardputerOS
 
 A small operating system for the **M5Stack Cardputer ADV** (ESP32-S3, 8 MB flash, no PSRAM).
@@ -13,6 +35,44 @@ installed, updated and launched from the device itself, with no re-flashing and 
 * The OS itself lists releases of this repository on GitHub (tag `<app>-vX.Y.Z`, asset
   `<app>-vX.Y.Z.elf`), downloads apps to `/apps` on the SD card and can update itself over the air
   (tag `os-vX.Y.Z`, asset `os-vX.Y.Z.bin`).
+
+<p align="center">
+  <img src="docs/assets/screens/launcher.png" width="24%" alt="Launcher">
+  <img src="docs/assets/screens/robot-control.png" width="24%" alt="Robot Control">
+  <img src="docs/assets/screens/snake.png" width="24%" alt="Snake">
+  <img src="docs/assets/screens/tetrix.png" width="24%" alt="Tetrix">
+</p>
+<p align="center"><sub>Screenshots from the QEMU emulator build.</sub></p>
+
+## Apps
+
+Install any of these from the on-device store (or copy the `.elf` to `/apps/` on the card).
+
+| App | What it does |
+|---|---|
+| [`robot-control`](apps/robot-control) | One remote for toy robots and drones: Sphero BB-8, Ollie, R2-D2, R2-Q5, BB-9E, BOLT (BLE), Parrot Rolling Spider (BLE) and Jumping Sumo (WiFi, with live video) |
+| [`ble-sentinel`](apps/ble-sentinel) | Passive BLE detector: Remote ID drones, smart glasses, trackers and more, by manufacturer-data signature |
+| [`mp3-player`](apps/mp3-player) | iPod-style MP3 player with artists, albums, playlists and cover art |
+| [`shell-rc`](apps/shell-rc) | BLE control for Shell Motorsport cars |
+| [`wiz-rc`](apps/wiz-rc) | WiFi (UDP) remote for WiZ smart lights |
+| [`led-rc`](apps/led-rc) | Infrared remote for generic RGB LED strips (24 and 44 key remotes) |
+| [`tv-b-gone`](apps/tv-b-gone) | Turns TVs off over infrared |
+| [`tuner`](apps/tuner) | Microphone tuner with cents meter and guitar/bass tunings |
+| [`compass`](apps/compass) | IMU compass with a 3D wind-rose view |
+| [`karting`](apps/karting) | GPS-less kart telemetry from the IMU: laps and g-forces |
+| [`snake`](apps/snake), [`tetrix`](apps/tetrix) | Classic games, built for the 240x135 screen |
+| [`ekoparty-badge`](apps/ekoparty-badge) | Conference badge with a QR code |
+
+Apps are written in plain Arduino/M5Cardputer C++ and talk to the hardware only through the OS.
+
+## Roadmap
+
+- [x] ELF loader, app runner, versioned ABI, store and over-the-air OS updates
+- [x] Bluetooth LE, TCP/UDP sockets, MP3/JPEG decoding in the OS
+- [ ] Tested-on-hardware status for every app (most were validated in the emulator only)
+- [ ] OS update rollback and signed releases
+- [ ] Shortcuts and intents between apps
+
 
 ## Flash the OS (once)
 
