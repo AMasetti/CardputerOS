@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.11.3
+- Intents (CardputerOS 0.7.0 and later, docs/intents.md): sentinel.scan, sentinel.count.
+
 ## 0.11.2
 - New vector launcher icon (CardputerOS 0.6.0 and later; 0.5.0 icons were bitmaps).
 

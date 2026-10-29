@@ -26,7 +26,7 @@ extern "C" {
 #endif
 
 #define CPOS_ABI_MAJOR 1
-#define CPOS_ABI_MINOR 3
+#define CPOS_ABI_MINOR 4
 
 /* ---- permissions (declared in the app header) ----------------------------- */
 #define CPOS_PERM_SD        (1u << 0)
@@ -286,6 +286,19 @@ typedef struct {
 /* ---- libc ---------------------------------------------------------------------- */
 #include "libc_table.h"
 
+/* ---- intents (minor 4) --------------------------------------------------------------
+ * An app can be started by the OS to serve one intent (docs/intents.md): it gets the name and the
+ * text arguments, does the job without running setup()/loop(), and answers with a status and a value. */
+#define CPOS_INTENT_NAME_MAX 32
+#define CPOS_INTENT_ARGS_MAX 96
+#define CPOS_INTENT_VALUE_MAX 160
+enum { CPOS_INTENT_OK = 0, CPOS_INTENT_NO_APP, CPOS_INTENT_NO_PERM, CPOS_INTENT_TIMEOUT, CPOS_INTENT_BAD_ARG, CPOS_INTENT_FAILED };
+typedef struct {
+    int (*request)(char *name, size_t name_max, char *args, size_t args_max); /* 1 when launched for an intent */
+    void (*reply)(int status, const char *value); /* status 0 ok; 1 no_app 2 no_perm 3 timeout 4 bad_arg 5 failed */
+    uintptr_t reserved[4];
+} cpos_intent_api_t;
+
 /* ---- the table ------------------------------------------------------------------- */
 struct cpos_api {
     uint32_t abi_major;
@@ -324,6 +337,8 @@ struct cpos_api {
     /* minor 2 */
     cpos_rtos_api_t rtos;
     cpos_media_api_t media;
+    /* minor 4 */
+    cpos_intent_api_t intent;
 };
 
 #ifdef __cplusplus

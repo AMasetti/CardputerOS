@@ -1,5 +1,8 @@
 # Changelog — WiZ RC
 
+## 0.1.3
+- Intents (CardputerOS 0.7.0 and later, docs/intents.md): light.on, light.off, light.brightness, light.color, light.temp, light.scene, light.find.
+
 ## 0.1.2
 - New vector launcher icon (CardputerOS 0.6.0 and later; 0.5.0 icons were bitmaps).
 

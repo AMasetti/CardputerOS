@@ -1,10 +1,25 @@
 {
   "name": "compass",
   "displayName": "Brújula",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Brújula con el acelerómetro y el giróscopo: vista 3D con el Cardputer sobre una rosa de los vientos y vista 2D clásica con nivel de burbuja. El norte se fija a mano (no tiene magnetómetro).",
   "perms": [
     "imu"
   ],
-  "stack": 8192
+  "stack": 8192,
+  "intents": {
+    "compass.tilt": {
+      "title": "Inclinación (pitch y roll)",
+      "returns": {
+        "pitch": "int:-90-90",
+        "roll": "int:-180-180"
+      },
+      "timeout_ms": 6000
+    },
+    "compass.flat": {
+      "title": "¿Está apoyado plano?",
+      "returns": "bool",
+      "timeout_ms": 6000
+    }
+  }
 }

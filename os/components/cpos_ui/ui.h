@@ -39,3 +39,8 @@ void store_screen(void);
 const char *store_repo(void);
 void store_set_repo(const char *r);
 int parse_version(const char *s, int v[3]);
+
+/* intents (intents_ui.c): System > Intents, and a helper that runs one in an app */
+void intents_screen(void);
+int ui_run_intent(const char *path, const char *name, const char *args, char *value, size_t vmax, uint32_t timeout_ms);
+int cpos_intent_os(const char *name, const char *args, char *value, size_t vmax);

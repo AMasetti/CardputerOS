@@ -1,5 +1,8 @@
 # Changelog — TV-B-Gone
 
+## 0.1.3
+- Intents (CardputerOS 0.7.0 and later, docs/intents.md): tv.off_all, tv.region.
+
 ## 0.1.2
 - New vector launcher icon (CardputerOS 0.6.0 and later; 0.5.0 icons were bitmaps).
 

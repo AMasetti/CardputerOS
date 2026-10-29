@@ -1,11 +1,34 @@
 {
   "name": "tuner",
   "displayName": "Afinador",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Afinador con el micrófono: nota en grande, medidor de cents, modo cromático y afinaciones de guitarra, bajo y ukelele, tono de referencia y A4 ajustable.",
   "perms": [
     "audio_out",
     "audio_in"
   ],
-  "stack": 8192
+  "stack": 8192,
+  "intents": {
+    "tuner.listen": {
+      "title": "Escuchar una nota",
+      "args": {
+        "seconds": "int:1-10"
+      },
+      "returns": {
+        "note": "text:4",
+        "octave": "int:0-9",
+        "cents": "int:-50-50"
+      },
+      "timeout_ms": 14000
+    },
+    "tuner.set": {
+      "title": "Elegir afinación y La4",
+      "args": {
+        "tuning": "int:0-9",
+        "a4": "int:430-450"
+      },
+      "returns": "ok",
+      "timeout_ms": 2000
+    }
+  }
 }

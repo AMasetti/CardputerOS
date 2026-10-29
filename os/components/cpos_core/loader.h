@@ -25,6 +25,8 @@ int cpos_read_header(const char *path, cpos_app_header_t *out, const char **err)
  * tools/gen_icons.py) that the launcher draws at any size. 0 when the app has one. */
 #define CPOS_ICON_MAX 160
 int cpos_read_icon(const char *path, uint8_t *out);
+/* The intents the app declares (compact JSON from the .cpos_intents section, NUL terminated); length or -1. */
+int cpos_read_intents(const char *path, char *out, size_t max);
 /* Load and relocate an app into RAM. err is set to a static string on failure. */
 int cpos_load(const char *path, cpos_image_t *img, const char **err);
 void cpos_unload(cpos_image_t *img);

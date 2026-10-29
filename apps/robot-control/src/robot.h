@@ -2,6 +2,7 @@
 #pragma once
 #include <M5Cardputer.h>
 #include <string>
+#include <cpos_intent.h>
 
 static constexpr int SCREEN_W = 240;
 static constexpr int SCREEN_H = 135;
@@ -42,6 +43,7 @@ struct Robot {
     virtual const char *title() = 0;
     virtual const char *hint() { return "Fn+` salir"; }
     virtual bool linkOk() { return true; }
+    virtual int intent(const Intent &in) { return CPOS_INTENT_NO_APP; }  // un intent, con el robot ya conectado
     virtual void close() = 0;                       // frena y se desconecta de forma limpia
 };
 
@@ -94,4 +96,12 @@ inline bool bleConnect(const Found &f, std::string &status)
 inline int bleWrite(uint16_t h, uint8_t props, const uint8_t *p, size_t n)
 {
     return cpos_api->ble.write(h, p, n, (props & 0x04) ? 0 : 1);  // sin respuesta si la característica lo admite
+}
+
+// robot.drive: dir fwd/right/back/left -> heading 0/90/180/270 (the calibrated front is 0); -1 if not valid
+inline int intentHeading(const Intent &in)
+{
+    char d[6];
+    if (!in.get("dir", d, sizeof(d))) return -1;
+    return !strcmp(d, "fwd") ? 0 : !strcmp(d, "right") ? 90 : !strcmp(d, "back") ? 180 : !strcmp(d, "left") ? 270 : -1;
 }

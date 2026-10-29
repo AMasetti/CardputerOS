@@ -1,5 +1,8 @@
 # Changelog — Karting
 
+## 0.1.3
+- Intents (CardputerOS 0.7.0 and later, docs/intents.md): kart.last_session, kart.best_ever.
+
 ## 0.1.2
 - New vector launcher icon (CardputerOS 0.6.0 and later; 0.5.0 icons were bitmaps).
 

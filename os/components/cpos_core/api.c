@@ -299,6 +299,7 @@ const cpos_api_t *cpos_api_get(void) {
         cpos_ble_fill(&s_api_rw.ble, &s_api_rw.crypto);
         cpos_rtos_fill(&s_api_rw.rtos);
         cpos_media_fill(&s_api_rw.media);
+        cpos_intent_fill(&s_api_rw.intent);
         extern void cpos_gpio_fill(cpos_gpio_api_t *);
         cpos_gpio_fill(&s_api_rw.gpio);
     }

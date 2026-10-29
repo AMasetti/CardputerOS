@@ -7,6 +7,8 @@
 // El logo vive en src/logo.h (RGB565). Para regenerarlo:
 //   python3 tools/img2h.py assets/ekoparty22.jpg src/logo.h --size 130
 
+#include <cpos_intent.h>
+#include <Preferences.h>
 #include <M5Cardputer.h>
 
 #include "logo.h"
@@ -15,8 +17,29 @@
 #define APP_VERSION "dev"
 #endif
 
-static const char *QR_URL = "https://amasetti.com";
-static const char *QR_LABEL = "AMasetti.com";
+static const char *DEFAULT_URL = "https://amasetti.com";
+static char urlBuf[96] = "https://amasetti.com";
+static char labelBuf[32] = "AMasetti.com";
+static const char *QR_URL = urlBuf;
+static const char *QR_LABEL = labelBuf;
+static Preferences prefs;
+
+// La etiqueta es el dominio: la URL sin esquema ni ruta.
+static void setUrl(const char *url)
+{
+    snprintf(urlBuf, sizeof(urlBuf), "%s", url);
+    const char *h = strstr(url, "://");
+    snprintf(labelBuf, sizeof(labelBuf), "%s", h ? h + 3 : url);
+    char *slash = strchr(labelBuf, '/');
+    if (slash) *slash = 0;
+}
+
+static void loadUrl()
+{
+    prefs.begin("badge", false);
+    String u = prefs.getString("url", DEFAULT_URL);
+    setUrl(u.c_str());
+}
 
 static bool bigQr = false;
 
@@ -76,6 +99,7 @@ void setup()
     M5Cardputer.begin(cfg, true);
     M5Cardputer.Display.setRotation(1);
     M5Cardputer.Display.setBrightness(200);
+    loadUrl();
     redraw();
 }
 
@@ -87,4 +111,20 @@ void loop()
         redraw();
     }
     delay(10);
+}
+
+// --- Intents (docs/intents.md) ----------------------------------------------------------------
+void on_intent(const Intent &in, IntentResult &out)
+{
+    loadUrl();
+    if (in.is("badge.get_url")) {
+        out.ok(urlBuf);
+    } else if (in.is("badge.set_url")) {
+        char u[CPOS_INTENT_ARGS_MAX];
+        if (!in.get("url", u, sizeof(u)) || strncmp(u, "http", 4) || strlen(u) < 8 || strlen(u) > 90) { out.error(CPOS_INTENT_BAD_ARG); return; }
+        prefs.putString("url", u);
+        out.ok();
+    } else {
+        out.error(CPOS_INTENT_NO_APP);
+    }
 }

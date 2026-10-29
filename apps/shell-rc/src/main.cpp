@@ -16,6 +16,7 @@
 //                       2025: l luces, t turbo, o donut, m modo 1/2
 //                       del   desconectar
 
+#include <cpos_intent.h>
 #include <M5Cardputer.h>
 #include <NimBLEDevice.h>
 #include <Preferences.h>
@@ -332,8 +333,10 @@ static void drawFooter(const char *text)
     canvas.drawString(text, SCREEN_W / 2, SCREEN_H - 2);
 }
 
+static bool uiReady;  // false cuando la app corre para atender un intent: no hay pantalla
 static void drawMessage(const char *title, const char *line)
 {
+    if (!uiReady) return;
     canvas.fillScreen(C_BG);
     drawHud(GENS[gen].label, "");
     canvas.setTextDatum(middle_center);
@@ -583,6 +586,7 @@ void setup()
     M5Cardputer.begin(cfg, true);
     M5Cardputer.Display.setRotation(1);
 
+    uiReady = true;
     canvas.setColorDepth(16);
     canvas.createSprite(SCREEN_W, SCREEN_H);
 
@@ -643,4 +647,82 @@ void loop()
         dirty = false;
     }
     delay(2);
+}
+
+// --- Intents (docs/intents.md) ----------------------------------------------------------------
+// Cada intent es una sesión corta: busca el auto más cercano, se conecta, maneja un rato, frena y se desconecta.
+static bool intentConnect()
+{
+    NimBLEDevice::init("Cardputer RC");
+    NimBLEDevice::setPower(ESP_PWR_LVL_P9);
+    startScan();
+    for (uint32_t t0 = millis(); millis() - t0 < SCAN_SECONDS * 1000; delay(50)) {
+        std::lock_guard<std::mutex> lock(foundLock);
+        if (foundCount > 0) break;
+    }
+    stopScan();
+    collectCars();
+    if (cars.empty()) return false;
+    return connectTo(cars[0]);
+}
+
+static void intentDrive(int ms)
+{
+    for (uint32_t t0 = millis(); millis() - t0 < (uint32_t)ms;) {
+        sendControls();
+        delay(SEND_MS);
+    }
+    ctl = {};
+    turbo = donut = false;
+    for (int i = 0; i < 3; i++) {  // parada explícita
+        if (gen == GEN_2024) sendRaw(IDLE_2024, 16);
+        else sendControls();
+        delay(SEND_MS);
+    }
+}
+
+void on_intent(const Intent &in, IntentResult &out)
+{
+    auto cfg = M5.config();
+    M5Cardputer.begin(cfg, false);
+    prefs.begin("shell-rc", false);
+    gen = (Gen)min<uint8_t>(prefs.getUChar("gen", GEN_2025), 1);
+    int ms = in.i("ms", 1000);
+    char dir[8] = "";
+    if (in.is("car.drive")) {
+        in.get("dir", dir, sizeof(dir));
+        if (strcmp(dir, "fwd") && strcmp(dir, "back") && strcmp(dir, "left") && strcmp(dir, "right")) { out.error(CPOS_INTENT_BAD_ARG); return; }
+    }
+    bool is2025 = gen == GEN_2025;
+    if ((in.is("car.turbo") || in.is("car.donut")) && !is2025) { out.error(CPOS_INTENT_BAD_ARG); return; }
+    if (!in.is("car.drive") && !in.is("car.turbo") && !in.is("car.donut") && !in.is("car.battery")) { out.error(CPOS_INTENT_NO_APP); return; }
+    if (ms < 100 || ms > 5000) { out.error(CPOS_INTENT_BAD_ARG); return; }  // tope de 5 s: un intent no deja el auto andando
+
+    if (!intentConnect()) { out.error(CPOS_INTENT_FAILED); return; }
+    if (in.is("car.battery")) {
+        delay(300);
+        int b = battery;
+        client->disconnect();
+        if (b < 0) { out.error(CPOS_INTENT_FAILED); return; }  // solo la generación 2025 informa batería
+        out.ok(b);
+        return;
+    }
+    char lt[4];
+    lights = in.get("lights", lt, sizeof(lt)) && !strcmp(lt, "on") && is2025;
+    speedIdx = in.i("speed", 3) - 1;
+    if (speedIdx < 0 || speedIdx > 3) speedIdx = 2;
+    ctl = {};
+    if (in.is("car.drive")) {
+        ctl.fwd = !strcmp(dir, "fwd");
+        ctl.back = !strcmp(dir, "back");
+        ctl.left = !strcmp(dir, "left");
+        ctl.right = !strcmp(dir, "right");
+    } else if (in.is("car.turbo")) {
+        ctl.fwd = turbo = true;
+    } else {
+        donut = true;
+    }
+    intentDrive(ms);
+    client->disconnect();
+    out.ok();
 }

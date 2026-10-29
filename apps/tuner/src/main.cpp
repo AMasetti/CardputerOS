@@ -14,6 +14,7 @@
 //
 // La afinación, el A4 y la notación se guardan en la flash (NVS).
 
+#include <cpos_intent.h>
 #include <M5Cardputer.h>
 #include <Preferences.h>
 #include <math.h>
@@ -587,4 +588,61 @@ void loop()
     if (f > 0) onPitch(f);
     else if (haveNote && millis() - lastHeard > 250) inTuneSince = 0;
     render();
+}
+
+// --- Intents (docs/intents.md) ----------------------------------------------------------------
+void on_intent(const Intent &in, IntentResult &out)
+{
+    auto cfg = M5.config();
+    M5Cardputer.begin(cfg, false);
+    prefs.begin("tuner", false);
+    tuningIdx = prefs.getUChar("tuning", 1);
+    if (tuningIdx >= NUM_TUNINGS) tuningIdx = 1;
+    a4 = prefs.getUShort("a4", 440);
+    if (a4 < 430 || a4 > 450) a4 = 440;
+    doremi = prefs.getBool("doremi", false);
+
+    if (in.is("tuner.set")) {
+        int t = in.i("tuning", tuningIdx), a = in.i("a4", a4);
+        if (t < 0 || t >= NUM_TUNINGS || a < 430 || a > 450) { out.error(CPOS_INTENT_BAD_ARG); return; }
+        tuningIdx = t;
+        a4 = a;
+        savePrefs();
+        out.ok();
+    } else if (in.is("tuner.listen")) {
+        int secs = in.i("seconds", 3);
+        if (secs < 1 || secs > 10) { out.error(CPOS_INTENT_BAD_ARG); return; }
+        startMic();
+        static float mids[48];
+        int n = 0;
+        ringPos = 0;
+        memset(ring, 0, sizeof(ring));
+        for (uint32_t t0 = millis(); millis() - t0 < (uint32_t)secs * 1000 && n < 48;) {
+            const int16_t *chunk;
+            if (!readChunk(chunk)) continue;
+            for (size_t i = 0; i < CHUNK; ++i) {
+                ring[ringPos] = chunk[i];
+                ringPos = (ringPos + 1) % FRAME;
+            }
+            float rms = 0;
+            float f = detectPitch(ring, rms);
+            if (f > 0) mids[n++] = freqToMidi(f);
+        }
+        M5Cardputer.Mic.end();
+        if (n < 3) { out.error(CPOS_INTENT_FAILED); return; }  // no se oyó una nota clara
+        for (int i = 1; i < n; ++i) {                              // mediana: ignora los saltos de octava sueltos
+            float v = mids[i];
+            int j = i - 1;
+            while (j >= 0 && mids[j] > v) mids[j + 1] = mids[j], --j;
+            mids[j + 1] = v;
+        }
+        float m = mids[n / 2];
+        int midi = (int)floorf(m + 0.5f);
+        out.field("note", noteName(midi));
+        out.field("octave", octave(midi));
+        out.field("cents", (int)lroundf((m - midi) * 100));
+        out.done();
+    } else {
+        out.error(CPOS_INTENT_NO_APP);
+    }
 }

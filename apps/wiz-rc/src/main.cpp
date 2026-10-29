@@ -14,6 +14,7 @@
 //   control         tab modo (color / blanco / escena), space prender-apagar
 //                   ; . campo, , / valor (mantener acelera), 1-8 colores, del volver
 
+#include <cpos_intent.h>
 #include <M5Cardputer.h>
 #include <Preferences.h>
 #include <WiFi.h>
@@ -856,4 +857,87 @@ void loop()
         dirty = false;
     }
     delay(2);
+}
+
+// --- Intents (docs/intents.md) ----------------------------------------------------------------
+static bool intentWifi()
+{
+    prefs.begin("wiz-rc", false);
+    WiFi.mode(WIFI_STA);
+    if (WiFi.status() == WL_CONNECTED) return true;
+    String s = prefs.getString("ssid", ""), p = prefs.getString("pass", "");
+    if (!s.length()) return false;  // la red se configura abriendo la app una vez
+    WiFi.begin(s.c_str(), p.c_str());
+    for (uint32_t t0 = millis(); WiFi.status() != WL_CONNECTED && millis() - t0 < 10000;) delay(100);
+    return WiFi.status() == WL_CONNECTED;
+}
+
+// A todas las lámparas (broadcast) o, con ip=a.b.c.d, a una sola.
+static void intentSend(const Intent &in, const char *json)
+{
+    char ipt[20];
+    int a, b, c, d;
+    IPAddress dst = WiFi.broadcastIP();
+    if (in.get("ip", ipt, sizeof(ipt)) && sscanf(ipt, "%d.%d.%d.%d", &a, &b, &c, &d) == 4) dst = IPAddress(a, b, c, d);
+    for (int i = 0; i < 3; ++i) {  // UDP puede perderse: tres veces
+        sendTo(dst, json);
+        delay(40);
+    }
+}
+
+void on_intent(const Intent &in, IntentResult &out)
+{
+    auto cfg = M5.config();
+    M5Cardputer.begin(cfg, false);
+    if (!intentWifi()) { out.error(CPOS_INTENT_FAILED); return; }
+    udp.begin(WIZ_PORT);
+    char buf[200];
+    if (in.is("light.on") || in.is("light.off")) {
+        snprintf(buf, sizeof(buf), "{\"id\":1,\"method\":\"setPilot\",\"params\":{\"state\":%s}}", in.is("light.on") ? "true" : "false");
+        intentSend(in, buf);
+        out.ok();
+    } else if (in.is("light.brightness")) {
+        int level = in.i("level", -1);
+        if (level < 10 || level > 100) { out.error(CPOS_INTENT_BAD_ARG); return; }
+        snprintf(buf, sizeof(buf), "{\"id\":1,\"method\":\"setPilot\",\"params\":{\"state\":true,\"dimming\":%d}}", level);
+        intentSend(in, buf);
+        out.ok();
+    } else if (in.is("light.color")) {
+        int r = in.i("r", -1), g = in.i("g", -1), b = in.i("b", -1);
+        if (r < 0 || g < 0 || b < 0 || r > 255 || g > 255 || b > 255) { out.error(CPOS_INTENT_BAD_ARG); return; }
+        snprintf(buf, sizeof(buf), "{\"id\":1,\"method\":\"setPilot\",\"params\":{\"state\":true,\"r\":%d,\"g\":%d,\"b\":%d,\"dimming\":100}}", r, g, b);
+        intentSend(in, buf);
+        out.ok();
+    } else if (in.is("light.temp")) {
+        int k = in.i("kelvin", 0);
+        if (k < 2200 || k > 6500) { out.error(CPOS_INTENT_BAD_ARG); return; }
+        snprintf(buf, sizeof(buf), "{\"id\":1,\"method\":\"setPilot\",\"params\":{\"state\":true,\"temp\":%d,\"dimming\":100}}", k);
+        intentSend(in, buf);
+        out.ok();
+    } else if (in.is("light.scene")) {
+        char name[24];
+        int id = 0;
+        if (in.get("name", name, sizeof(name))) {
+            for (int i = 0; i < 32; ++i) if (!strcasecmp(name, SCENES[i])) id = i + 1;
+        } else {
+            id = in.i("id", 0);
+        }
+        if (id < 1 || id > 32) { out.error(CPOS_INTENT_BAD_ARG); return; }
+        snprintf(buf, sizeof(buf), "{\"id\":1,\"method\":\"setPilot\",\"params\":{\"state\":true,\"sceneId\":%d,\"dimming\":100}}", id);
+        intentSend(in, buf);
+        out.ok();
+    } else if (in.is("light.find")) {
+        bulbs.clear();
+        screen = Screen::Bulbs;  // pollUdp() solo acepta respuestas en esta pantalla
+        discovering = true;
+        probe();
+        for (uint32_t t0 = millis(); millis() - t0 < DISCOVER_MS;) {
+            pollUdp();
+            delay(20);
+        }
+        for (auto &b : bulbs) out.item(b.ip.toString().c_str());
+        out.done();
+    } else {
+        out.error(CPOS_INTENT_NO_APP);
+    }
 }

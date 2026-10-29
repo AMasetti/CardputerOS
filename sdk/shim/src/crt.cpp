@@ -12,6 +12,9 @@
 const cpos_api_t *cpos_api;
 void (*cpos_loop_hook)(void); /* set by shims that deliver events between loop() calls (BLE) */
 
+#include "cpos_intent.h"
+
+const Intent *cpos_start_intent;
 void setup();
 void loop();
 
@@ -27,6 +30,16 @@ int cpos_app_entry(const cpos_api_t *api) {
     cpos_api = api;
     for (ctor_t *c = __init_array_start; c < __init_array_end; c++) (*c)();
     for (ctor_t *c = __ctors_end; c > __ctors_start;) (*--c)();
+    char iname[CPOS_INTENT_NAME_MAX], iargs[CPOS_INTENT_ARGS_MAX];
+    if (api->abi_minor >= 4 && api->intent.request(iname, sizeof(iname), iargs, sizeof(iargs))) {
+        // started by the OS to serve one intent: no setup()/loop()
+        IntentResult r;
+        Intent in{iname, iargs};
+        if (on_intent) on_intent(in, r);
+        api->intent.reply(r.status, r.value);
+        if (!r.handoff) return 0;
+        cpos_start_intent = &in;  // launch intent: carry on as a normal app
+    }
     setup();
     while (!api->exit_requested()) {
         loop();

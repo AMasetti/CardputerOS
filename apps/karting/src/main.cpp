@@ -15,6 +15,7 @@
 // SD: solo se escribe dentro de /karting, con archivos nuevos por sesión y flush cada ~1 s.
 // Nunca se formatea ni se borra nada.
 
+#include <cpos_intent.h>
 #include <M5Cardputer.h>
 #include <Preferences.h>
 #include <SD.h>
@@ -927,4 +928,63 @@ void loop()
         dirty = false;
     }
     delay(1);
+}
+
+// --- Intents (docs/intents.md) ----------------------------------------------------------------
+// Una sesión en vivo necesita la app abierta, así que los intents leen lo ya guardado en la SD.
+struct LapStats { int laps; uint32_t best, last; };
+
+static bool readLaps(int session, LapStats &st)
+{
+    char path[40];
+    snprintf(path, sizeof(path), "/karting/s%03d_laps.csv", session);
+    File f = SD.open(path, FILE_READ);
+    if (!f) return false;
+    st = {0, 0, 0};
+    char line[80];
+    int n = 0, c;
+    while ((c = f.read()) >= 0) {
+        if (c != '\n' && n < (int)sizeof(line) - 1) { line[n++] = c; continue; }
+        line[n] = 0;
+        n = 0;
+        unsigned no, ms;
+        if (!strncmp(line, "race,", 5) && sscanf(line + 5, "%u,%u", &no, &ms) == 2) {  // las vueltas de reconocimiento no cuentan
+            st.laps++;
+            st.last = ms;
+            if (!st.best || ms < st.best) st.best = ms;
+        }
+    }
+    return st.laps > 0;
+}
+
+void on_intent(const Intent &in, IntentResult &out)
+{
+    auto cfg = M5.config();
+    M5Cardputer.begin(cfg, false);
+    prefs.begin("karting", false);
+    if (!sdInit()) { out.error(CPOS_INTENT_FAILED); return; }
+    int last = prefs.getInt("session", 0);
+    if (in.is("kart.last_session")) {
+        LapStats st;
+        for (int n = last; n >= 1 && n > last - 20; --n) {  // la más reciente con vueltas de carrera
+            if (!readLaps(n, st)) continue;
+            out.field("session", n);
+            out.field("laps", st.laps);
+            out.field("best_ms", (int)st.best);
+            out.field("last_ms", (int)st.last);
+            out.done();
+            return;
+        }
+        out.error(CPOS_INTENT_FAILED);  // todavía no hay sesiones con vueltas
+    } else if (in.is("kart.best_ever")) {
+        uint32_t best = 0;
+        for (int n = 1; n <= last; ++n) {
+            LapStats st;
+            if (readLaps(n, st) && (!best || st.best < best)) best = st.best;
+        }
+        if (!best) { out.error(CPOS_INTENT_FAILED); return; }
+        out.ok((int)best);
+    } else {
+        out.error(CPOS_INTENT_NO_APP);
+    }
 }

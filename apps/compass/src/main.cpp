@@ -15,6 +15,7 @@
 //
 // La vista y la orientación del sensor se guardan en la flash (NVS).
 
+#include <cpos_intent.h>
 #include <M5Cardputer.h>
 #include <Preferences.h>
 #include <math.h>
@@ -569,4 +570,29 @@ void loop()
         render();
     }
     delay(1);
+}
+
+// --- Intents (docs/intents.md) ----------------------------------------------------------------
+// El Cardputer no tiene magnetómetro: no hay rumbo absoluto, solo inclinación (gravedad).
+void on_intent(const Intent &in, IntentResult &out)
+{
+    auto cfg = M5.config();
+    M5Cardputer.begin(cfg, false);
+    prefs.begin("compass", false);
+    axisMap = prefs.getUChar("axis", 0) % 8;
+    R = rotation();
+    startCalibration();
+    uint32_t t0 = millis();
+    while (calibrating && millis() - t0 < 3000) { readImu(); delay(5); }  // quieto ~1,5 s para medir el sesgo
+    if (calibrating) { out.error(CPOS_INTENT_FAILED); return; }
+    for (int i = 0; i < 60; ++i) { readImu(); delay(5); }                  // deja asentar el filtro
+    if (in.is("compass.tilt")) {
+        out.field("pitch", (int)pitchDeg);
+        out.field("roll", (int)rollDeg);
+        out.done();
+    } else if (in.is("compass.flat")) {
+        out.ok(fabsf(pitchDeg) < 20 && fabsf(rollDeg) < 20);
+    } else {
+        out.error(CPOS_INTENT_NO_APP);
+    }
 }

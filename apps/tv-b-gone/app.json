@@ -1,10 +1,28 @@
 {
   "name": "tv-b-gone",
   "displayName": "TV-B-Gone",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Apaga (o prende) televisores por infrarrojo: dispara los códigos de encendido del TV-B-Gone original para América, Europa o ambas.",
   "perms": [
     "ir"
   ],
-  "stack": 8192
+  "stack": 8192,
+  "intents": {
+    "tv.off_all": {
+      "title": "Apagar televisores (todos los códigos)",
+      "args": {
+        "region": "text:4"
+      },
+      "returns": "int",
+      "timeout_ms": 90000
+    },
+    "tv.region": {
+      "title": "Elegir región (na, eu, both)",
+      "args": {
+        "region": "text:4"
+      },
+      "returns": "ok",
+      "timeout_ms": 2000
+    }
+  }
 }

@@ -8,6 +8,7 @@
 //
 // El récord se guarda en la flash (NVS), así que sobrevive al apagado.
 
+#include <cpos_intent.h>
 #include <M5Cardputer.h>
 #include <Preferences.h>
 
@@ -315,4 +316,20 @@ void loop()
         dirty = false;
     }
     delay(2);
+}
+
+// --- Intents (docs/intents.md) ----------------------------------------------------------------
+void on_intent(const Intent &in, IntentResult &out)
+{
+    prefs.begin("snake", false);
+    if (in.is("snake.high_score")) {
+        out.ok((int)prefs.getInt("high", 0));
+    } else if (in.is("snake.sound")) {
+        char v[4];
+        if (!in.get("state", v, sizeof(v)) || (strcmp(v, "on") && strcmp(v, "off"))) { out.error(CPOS_INTENT_BAD_ARG); return; }
+        prefs.putBool("sound", !strcmp(v, "on"));
+        out.ok();
+    } else {
+        out.error(CPOS_INTENT_NO_APP);
+    }
 }

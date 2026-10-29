@@ -152,6 +152,12 @@ launcher draws at any size in the theme colors, so it stays crisp in the carouse
 next to `app.json` and `build_app.py` embeds it; `python3 tools/gen_icons.py` (needs Pillow) generates the icons
 of the bundled apps from the glyph definitions in that script, apps without an icon get a letter tile.
 
+### Intents
+
+Apps can offer small named jobs to the rest of the system (`light.color`, `compass.tilt`, `tv.off_all`): the OS starts
+the app without its UI, passes the arguments and gets a value back. Declare them in `app.json`, implement
+`on_intent()` and try them from **System > Intents**. See [docs/intents.md](docs/intents.md).
+
 ### ABI and versions
 
 `CPOS_ABI_MAJOR` changes when something is removed or changes meaning; `CPOS_ABI_MINOR` when

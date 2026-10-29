@@ -14,6 +14,7 @@
 //   r g b w       rojo / verde / azul / blanco
 //   tab           cambiar entre el mando de 24 y el de 44 teclas
 
+#include <cpos_intent.h>
 #include <M5Cardputer.h>
 #include <Preferences.h>
 #include <esp_timer.h>
@@ -393,4 +394,62 @@ void loop()
         dirty = false;
     }
     delay(2);
+}
+
+// --- Intents (docs/intents.md) ----------------------------------------------------------------
+static bool sendLabel(const char *label)
+{
+    int i = findByLabel(label);
+    if (i < 0) return false;
+    fire(&REMOTES[remoteIdx].keys[i], false);
+    delay(REPEAT_MS);
+    return true;
+}
+
+void on_intent(const Intent &in, IntentResult &out)
+{
+    auto cfg = M5.config();
+    M5Cardputer.begin(cfg, false);
+    prefs.begin("led-rc", false);
+    remoteIdx = min<uint8_t>(prefs.getUChar("remote", 0), 1);  // el mando que se eligió en la app
+    ledcSetup(IR_CH, 38000, IR_RES);
+    ledcAttachPin(IR_PIN, IR_CH);
+    irOff();
+
+    if (in.is("strip.on") || in.is("strip.off")) {
+        bool on = in.is("strip.on");
+        // el mando de 44 teclas solo tiene un botón que alterna
+        if (!sendLabel(remoteIdx == 0 ? (on ? "ON" : "OFF") : "PWR")) { out.error(CPOS_INTENT_FAILED); return; }
+        out.ok();
+    } else if (in.is("strip.color")) {
+        int r = in.i("r", -1), g = in.i("g", -1), b = in.i("b", -1);
+        if (r < 0 || g < 0 || b < 0 || r > 255 || g > 255 || b > 255) { out.error(CPOS_INTENT_BAD_ARG); return; }
+        const Remote &rm = REMOTES[remoteIdx];
+        int best = -1;
+        long bestD = 1L << 30;
+        for (int i = 0; i < rm.count; i++) {  // la tecla de color más parecida
+            const Key &k = rm.keys[i];
+            if (!(k.r | k.g | k.b)) continue;
+            long d = (long)(k.r - r) * (k.r - r) + (long)(k.g - g) * (k.g - g) + (long)(k.b - b) * (k.b - b);
+            if (d < bestD) bestD = d, best = i;
+        }
+        if (best < 0) { out.error(CPOS_INTENT_FAILED); return; }
+        fire(&rm.keys[best], false);
+        out.ok(rm.keys[best].name);
+    } else if (in.is("strip.brightness")) {
+        char dir[8];
+        int steps = in.i("steps", 1);
+        if (!in.get("dir", dir, sizeof(dir)) || (strcmp(dir, "up") && strcmp(dir, "down")) || steps < 1 || steps > 10) { out.error(CPOS_INTENT_BAD_ARG); return; }
+        for (int i = 0; i < steps; i++) sendLabel(!strcmp(dir, "up") ? "B+" : "B-");
+        out.ok();
+    } else if (in.is("strip.mode")) {
+        char m[10];
+        if (!in.get("name", m, sizeof(m))) { out.error(CPOS_INTENT_BAD_ARG); return; }
+        const char *label = !strcmp(m, "flash") ? "FLSH" : !strcmp(m, "strobe") ? "STRB" : !strcmp(m, "smooth") ? "SMTH"
+                          : !strcmp(m, "fade") ? (remoteIdx == 0 ? "FADE" : "FAD7") : nullptr;
+        if (!label || !sendLabel(label)) { out.error(CPOS_INTENT_BAD_ARG); return; }  // ese modo no está en este mando
+        out.ok();
+    } else {
+        out.error(CPOS_INTENT_NO_APP);
+    }
 }

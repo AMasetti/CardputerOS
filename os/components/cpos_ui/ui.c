@@ -263,6 +263,16 @@ static void run_app(const app_entry_t *a) {
     }
 }
 
+int ui_run_intent(const char *path, const char *name, const char *args, char *value, size_t vmax, uint32_t timeout_ms) {
+    cpos_ui_audio_off();
+    cpos_before_app_start = release_canvas; /* the launcher's canvas is 64 KB: give it back while the app runs */
+    int st = cpos_run_intent(path, name, args, value, vmax, timeout_ms);
+    cpos_before_app_start = NULL;
+    if (!ui_cv) ui_cv = gfx_create(CPOS_SCREEN_W, CPOS_SCREEN_H, 16);
+    cpos_net_background_connect();
+    return st;
+}
+
 /* Test pattern + live adjustment of the panel orientation and window offset. */
 static void display_screen(void) {
     int flip, gx, gy;
@@ -302,7 +312,7 @@ static void display_screen(void) {
 static void system_screen(void) {
     char latest[16] = "";
     const esp_app_desc_t *d = esp_app_get_description();
-    ui_item_t it[10];
+    ui_item_t it[11];
     int n = 0;
     snprintf(it[n].left, 48, "OS version"); snprintf(it[n].right, 24, "%.20s", d->version); it[n].color = 0; n++;
     snprintf(it[n].left, 48, "Free heap"); snprintf(it[n].right, 24, "%u KB", (unsigned)(esp_get_free_heap_size() / 1024)); it[n].color = 0; n++;
@@ -312,6 +322,8 @@ static void system_screen(void) {
     snprintf(it[n].left, 48, "Display setup..."); it[n].right[0] = 0; it[n].color = C_ACC; n++;
     int tz_item = n;
     snprintf(it[n].left, 48, "Time zone..."); snprintf(it[n].right, 24, "UTC%+d", cpos_time_offset()); it[n].color = C_ACC; n++;
+    int in_item = n;
+    snprintf(it[n].left, 48, "Intents..."); it[n].right[0] = 0; it[n].color = C_ACC; n++;
     snprintf(it[n].left, 48, "Reboot"); it[n].right[0] = 0; it[n].color = C_ACC; n++;
     for (;;) {
         int s = ui_menu("System", it, n, 0, NULL);
@@ -330,6 +342,8 @@ static void system_screen(void) {
                 if (h >= -12 && h <= 14) cpos_time_set_offset(h);
             }
             snprintf(it[tz_item].right, 24, "UTC%+d", cpos_time_offset());
+        } else if (s == in_item) {
+            intents_screen();
         } else if (s == n - 1) {
             esp_restart();
         } else if (s < 0) break;

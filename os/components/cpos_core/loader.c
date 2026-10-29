@@ -106,6 +106,22 @@ int cpos_read_icon(const char *path, uint8_t *out) {
     return rc;
 }
 
+int cpos_read_intents(const char *path, char *out, size_t max) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return -1;
+    Elf32_Ehdr_t eh;
+    Elf32_Shdr_t sh;
+    const char *err;
+    int rc = -1;
+    if (read_ehdr(f, &eh, &err) == 0 && find_section(f, &eh, ".cpos_intents", &sh) == 0 && sh.sh_size > 1 && sh.sh_size < max &&
+        rd(f, sh.sh_offset, out, sh.sh_size) == 0) {
+        out[sh.sh_size] = 0;
+        rc = (int)sh.sh_size;
+    }
+    fclose(f);
+    return rc;
+}
+
 /*
  * Code lives in executable RAM that we reach through the instruction-bus alias. Only aligned
  * 32-bit accesses are used there (it is what the IDF heap itself does for EXEC allocations), so

@@ -31,6 +31,7 @@
 //   r                     reiniciar la sesión de prueba (limpia lo visto hasta
 //                         ahora, sin reiniciar el dispositivo; no toca "mío")
 //   +/-                   volumen master
+#include <cpos_intent.h>
 #include <M5Cardputer.h>
 #include <SD.h>
 #include <SPI.h>
@@ -52,6 +53,8 @@
 #endif
 
 namespace {
+
+bool quietMode = false;  // true cuando la app corre para un intent: sin alertas sonoras
 
 constexpr int SD_SCK = 40;
 constexpr int SD_MISO = 39;
@@ -929,7 +932,7 @@ void processSightings()
 
         if (!trusted && (kind == sightingstore::SightingKind::New ||
                           kind == sightingstore::SightingKind::MacRotated)) {
-            alertengine::trigger(res.alertProfile, fp.hash);
+            if (!quietMode) alertengine::trigger(res.alertProfile, fp.hash);
         }
 
         // Alimenta el ConvoyAnalyzer con todo, no solo New/MacRotated: lo
@@ -937,7 +940,7 @@ void processSightings()
         // eso pasa en cada paquete, no solo cuando cambia de estado.
         convoyanalyzer::onSighting(fp.hash);
         if (!trusted && convoyanalyzer::isSuspect(fp.hash)) {
-            alertengine::trigger(signaturedb::AlertProfile::ConvoySuspect, fp.hash);
+            if (!quietMode) alertengine::trigger(signaturedb::AlertProfile::ConvoySuspect, fp.hash);
         }
 
         // Si estamos siguiendo este fingerprint en la pantalla de
@@ -978,4 +981,56 @@ void loop()
     alertengine::update();
     roomsweep::updateTone();
     render();
+}
+
+// --- Intents (docs/intents.md) ----------------------------------------------------------------
+// Escanea unos segundos en silencio (sin alertas ni log en la SD) y cuenta lo que hay por categoría.
+static int countCategory(signaturedb::Category c)
+{
+    int n = 0;
+    for (size_t i = 0; i < sightingstore::count(); ++i)
+        if (sightingstore::byIndex(i)->category == c) ++n;
+    return n;
+}
+
+void on_intent(const Intent &in, IntentResult &out)
+{
+    bool isScan = in.is("sentinel.scan"), isCount = in.is("sentinel.count");
+    if (!isScan && !isCount) { out.error(CPOS_INTENT_NO_APP); return; }
+    int secs = in.i("seconds", 5);
+    char cat[10] = "";
+    if (isCount && (!in.get("category", cat, sizeof(cat)) ||
+                    (strcmp(cat, "drone") && strcmp(cat, "glasses") && strcmp(cat, "tracker") && strcmp(cat, "headset") &&
+                     strcmp(cat, "other") && strcmp(cat, "unknown") && strcmp(cat, "any")))) {
+        out.error(CPOS_INTENT_BAD_ARG);
+        return;
+    }
+    if (secs < 2 || secs > 30) { out.error(CPOS_INTENT_BAD_ARG); return; }
+
+    quietMode = true;
+    auto cfg = M5.config();
+    M5Cardputer.begin(cfg, false);
+    sightingstore::begin(false);  // solo en RAM: no escribe en la SD
+    convoyanalyzer::begin();
+    blescanner::begin();
+    blescanner::start();
+    for (uint32_t t0 = millis(); millis() - t0 < (uint32_t)secs * 1000;) {
+        processSightings();
+        delay(20);
+    }
+    blescanner::stop();
+
+    using signaturedb::Category;
+    int drone = countCategory(Category::DroneRemoteId), glasses = countCategory(Category::SmartGlasses),
+        tracker = countCategory(Category::FindMyTracker), headset = countCategory(Category::Headset),
+        other = countCategory(Category::IdentifiedVendor), unknown = countCategory(Category::Unknown);
+    if (isScan) {
+        out.field("drone", drone); out.field("glasses", glasses); out.field("tracker", tracker);
+        out.field("headset", headset); out.field("other", other); out.field("unknown", unknown);
+        out.done();
+    } else {
+        out.ok(!strcmp(cat, "drone") ? drone : !strcmp(cat, "glasses") ? glasses : !strcmp(cat, "tracker") ? tracker
+               : !strcmp(cat, "headset") ? headset : !strcmp(cat, "other") ? other : !strcmp(cat, "unknown") ? unknown
+               : (int)sightingstore::count());
+    }
 }

@@ -15,6 +15,7 @@
 //   Playlists:   e renombrar  x borrar
 //   Playlist:    m mover      x quitar
 
+#include <cpos_intent.h>
 #include <M5Cardputer.h>
 #include <Preferences.h>
 #include <SD.h>
@@ -1179,6 +1180,25 @@ static void handleKeys()
 }
 
 // --- Arduino --------------------------------------------------------------------------
+// Intent de arranque (docs/intents.md): la app se abre y empieza a reproducir.
+static void startFromIntent(const Intent &in)
+{
+    if (in.is("music.shuffle_all")) {
+        if (lib::tracks.empty()) { toast("No songs"); return; }
+        player::setShuffle(true);
+        savePrefsLater();
+        player::play(lib::songOrder, esp_random() % lib::songOrder.size());
+        push(V::NowPlaying);
+    } else if (in.is("music.play_playlist")) {
+        char name[48];
+        int pi = in.get("name", name, sizeof(name)) ? pls::find(name) : -1;
+        if (pi < 0 || pls::lists[pi].tracks.empty()) { toast("Playlist not found"); return; }
+        std::vector<uint16_t> q = pls::lists[pi].tracks;
+        player::play(q, 0);
+        push(V::NowPlaying);
+    }
+}
+
 void setup()
 {
     auto cfg = M5.config();
@@ -1209,6 +1229,7 @@ void setup()
     loadLibrary(false);
     battery = M5Cardputer.Power.getBatteryLevel();
     markSel();
+    if (const Intent *si = startIntent()) startFromIntent(*si);
 }
 
 void loop()
@@ -1244,4 +1265,40 @@ void loop()
     uint32_t every = animating ? 33 : (np || now < toastUntil + 300 || now < volUntil + 300) ? 250 : 1000;
     if (dirty || now - lastDraw >= every) draw();
     delay(2);
+}
+
+// --- Intents (docs/intents.md) ----------------------------------------------------------------
+void on_intent(const Intent &in, IntentResult &out)
+{
+    // las de reproducción abren la app y siguen como app normal (setup() las ejecuta)
+    if (in.is("music.play_playlist") || in.is("music.shuffle_all")) { out.launch(); return; }
+
+    prefs.begin("mp3player", false);
+    if (in.is("music.volume")) {
+        int v = in.i("level", -1);
+        if (v < 0 || v > 100) { out.error(CPOS_INTENT_BAD_ARG); return; }
+        prefs.putUChar("vol", (uint8_t)(v * 255 / 100));  // vale desde la próxima vez que se abra
+        out.ok();
+    } else if (in.is("music.shuffle")) {
+        char st[4];
+        if (!in.get("state", st, sizeof(st)) || (strcmp(st, "on") && strcmp(st, "off"))) { out.error(CPOS_INTENT_BAD_ARG); return; }
+        prefs.putBool("shuf", !strcmp(st, "on"));
+        out.ok();
+    } else if (in.is("music.playlists")) {
+        SPI.begin(SD_SCK, SD_MISO, SD_MOSI, SD_CS);
+        if (!SD.begin(SD_CS, SPI, 25000000)) { out.error(CPOS_INTENT_FAILED); return; }
+        File d = SD.open(pls::DIR_PATH);
+        if (!d) { out.done(); return; }  // sin playlists: lista vacía
+        int n = 0;
+        for (File f = d.openNextFile(); f && n < 16; f = d.openNextFile()) {
+            String nm = f.name();
+            if (!nm.endsWith(".m3u") && !nm.endsWith(".m3u8")) continue;
+            nm.remove(nm.lastIndexOf('.'));
+            out.item(nm.c_str());
+            ++n;
+        }
+        out.done();
+    } else {
+        out.error(CPOS_INTENT_NO_APP);
+    }
 }

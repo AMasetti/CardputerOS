@@ -128,6 +128,26 @@ struct Sphero1 : Robot {
         }
     }
 
+    int intent(const Intent &in) override
+    {
+        if (in.is("robot.color")) {
+            int r = in.i("r", -1), g = in.i("g", -1), b = in.i("b", -1);
+            if (r < 0 || g < 0 || b < 0 || r > 255 || g > 255 || b > 255) return CPOS_INTENT_BAD_ARG;
+            const uint8_t c[3] = {(uint8_t)r, (uint8_t)g, (uint8_t)b};
+            rgb(c);
+            return CPOS_INTENT_OK;
+        }
+        if (in.is("robot.drive")) {
+            int hd = intentHeading(in);
+            int ms = in.i("ms", 1000), sp = in.i("speed", 50);
+            if (hd < 0 || ms < 100 || ms > 5000 || sp < 10 || sp > 100) return CPOS_INTENT_BAD_ARG;
+            for (uint32_t t0 = millis(); millis() - t0 < (uint32_t)ms; delay(100)) roll(255 * sp / 100, hd);
+            roll(0, hd);
+            return CPOS_INTENT_OK;
+        }
+        return CPOS_INTENT_NO_APP;
+    }
+
     void close() override
     {
         if (cpos_api->ble.connected()) {

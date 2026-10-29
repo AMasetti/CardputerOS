@@ -120,19 +120,35 @@ static void selftest(void) {
     if (d) closedir(d);
     ESP_LOGI(TAG, "SELFTEST APPS ok=%d bad=%d", ok, bad);
 
+    /* intents: run a few and log what comes back */
+    {
+        static const struct { const char *app, *name, *args; } T[] = {
+            {"snake", "snake.high_score", ""}, {"snake", "snake.sound", "state=off"}, {"snake", "snake.sound", "state=maybe"},
+            {"ekoparty-badge", "badge.get_url", ""}, {"ekoparty-badge", "badge.set_url", "url=https://example.org/x?a=1"},
+            {"ekoparty-badge", "badge.get_url", ""}, {"tetrix", "tetrix.high_score", ""}, {"tuner", "tuner.set", "tuning=2;a4=442"},
+            {"tuner", "tuner.set", "tuning=99"}, {"tv-b-gone", "tv.region", "region=eu"}, {"led-rc", "strip.brightness", "dir=sideways"},
+            {"snake", "snake.nothing", ""}, {"compass", "compass.flat", ""},
+        };
+        for (unsigned i = 0; i < sizeof(T) / sizeof(T[0]); i++) {
+            char path[128] = "", val[CPOS_INTENT_VALUE_MAX];
+            DIR *dd = opendir("/sdcard/apps");
+            struct dirent *de;
+            size_t al = strlen(T[i].app);
+            while (dd && (de = readdir(dd)))
+                if (!strncmp(de->d_name, T[i].app, al) && de->d_name[al] == '-') snprintf(path, sizeof(path), "/sdcard/apps/%s", de->d_name);
+            if (dd) closedir(dd);
+            int st = path[0] ? cpos_run_intent(path, T[i].name, T[i].args, val, sizeof(val), 6000) : -1;
+            ESP_LOGI(TAG, "INTENT %s(%s) -> status=%d value='%s'", T[i].name, T[i].args, st, st >= 0 ? val : "");
+        }
+        char val[64];
+        int st = cpos_intent_os("os.battery", "", val, sizeof(val));
+        ESP_LOGI(TAG, "INTENT os.battery -> %d '%s'", st, val);
+    }
+
     /* launcher and system screens */
     xTaskCreate(ui_task, "ui", 8192, NULL, 4, NULL);
     vTaskDelay(pdMS_TO_TICKS(2500));
     hal_display_dump("ui-launcher");
-    hal_kbd_inject('\t');               /* grid view */
-    vTaskDelay(pdMS_TO_TICKS(800));
-    hal_display_dump("ui-grid");
-    hal_kbd_inject('/');
-    hal_kbd_inject('.');
-    hal_kbd_inject('.');
-    vTaskDelay(pdMS_TO_TICKS(800));
-    hal_display_dump("ui-grid2");
-    hal_kbd_inject('\t');               /* and back to the carousel */
     hal_kbd_inject(';');                 /* wraps to the last entry: System */
     hal_kbd_inject('\n');
     vTaskDelay(pdMS_TO_TICKS(1500));
@@ -141,6 +157,25 @@ static void selftest(void) {
     hal_kbd_inject('\n');                /* Display setup */
     vTaskDelay(pdMS_TO_TICKS(1500));
     hal_display_dump("ui-display");
+    hal_kbd_inject('`');                 /* back to the System menu, then Intents */
+    vTaskDelay(pdMS_TO_TICKS(1500));
+    for (int i = 0; i < 7; i++) hal_kbd_inject('.');
+    hal_kbd_inject('\n');
+    vTaskDelay(pdMS_TO_TICKS(2500));
+    hal_display_dump("ui-intents");
+    hal_kbd_inject('\n');               /* os.battery */
+    vTaskDelay(pdMS_TO_TICKS(1500));
+    hal_display_dump("ui-intents-run");
+    hal_kbd_inject('`');                 /* out of Intents, System and back to the launcher */
+    hal_kbd_inject('`');
+    hal_kbd_inject('\t');               /* grid view */
+    vTaskDelay(pdMS_TO_TICKS(800));
+    hal_display_dump("ui-grid");
+    hal_kbd_inject('/');
+    hal_kbd_inject('.');
+    hal_kbd_inject('.');
+    vTaskDelay(pdMS_TO_TICKS(800));
+    hal_display_dump("ui-grid2");
     ESP_LOGI(TAG, "SELFTEST DONE");
 }
 #endif

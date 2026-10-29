@@ -72,6 +72,34 @@ def pc_target(code, pc):
     return None
 
 
+import re
+ARG_TYPE = re.compile(r"^(int(:-?\d+--?\d+)?|text(:\d+)?|bool)$")
+RET_TYPE = re.compile(r"^(ok|bool|int(:-?\d+--?\d+)?|text(:\d+)?|list:\d+|record)$")
+
+
+def intents_blob(intents):
+    """Check the `intents` block of app.json and return it as compact JSON (NUL terminated)."""
+    for name, spec in intents.items():
+        if not re.fullmatch(r"[a-z0-9_]+\.[a-z0-9_]+", name):
+            sys.exit(f"intent '{name}': names look like 'light.color'")
+        if "title" not in spec:
+            sys.exit(f"intent '{name}': missing title")
+        for arg, typ in spec.get("args", {}).items():
+            if not re.fullmatch(r"[a-z0-9_]+", arg) or not ARG_TYPE.match(typ):
+                sys.exit(f"intent '{name}': bad argument '{arg}': '{typ}'")
+        ret = spec.get("returns", "ok")
+        if isinstance(ret, dict):
+            for k, t in ret.items():
+                if not ARG_TYPE.match(t):
+                    sys.exit(f"intent '{name}': bad record field '{k}': '{t}'")
+        elif not RET_TYPE.match(ret):
+            sys.exit(f"intent '{name}': bad return type '{ret}'")
+    blob = json.dumps(intents, separators=(",", ":"), ensure_ascii=False).encode() + b"\0"
+    if len(blob) > 3000:
+        sys.exit(f"intents block too big ({len(blob)} bytes, max 3000)")
+    return blob
+
+
 def code_splits(elf, mapfile, readelf):
     """Offsets where the code segment may be cut, so the OS can load it in several pieces.
 
@@ -160,6 +188,9 @@ def main():
     # stream sockets arrived in minor 3
     if "sock_connect" in src_text:
         a.abi_minor = max(a.abi_minor, 3)
+    # intents arrived in minor 4
+    if "on_intent" in src_text or meta.get("intents"):
+        a.abi_minor = max(a.abi_minor, 4)
     abi_minor = a.abi_minor
 
     gcc = find_tool("xtensa-esp32s3-elf-gcc")
@@ -213,6 +244,11 @@ __attribute__((section(".cpos_app"), used)) const cpos_app_header_t cpos_app_hea
     splits = code_splits(elf, build / (name + ".map"), find_tool("xtensa-esp32s3-elf-readelf"))
     (build / "splits.bin").write_bytes(b"".join(x.to_bytes(4, "little") for x in splits))
     run([find_tool("xtensa-esp32s3-elf-objcopy"), "--add-section", f".cpos_splits={build / 'splits.bin'}", elf])
+    # intents the app declares (docs/intents.md): validated here, embedded as compact JSON for the OS
+    if meta.get("intents"):
+        blob = intents_blob(meta["intents"])
+        (build / "intents.json").write_bytes(blob)
+        run([find_tool("xtensa-esp32s3-elf-objcopy"), "--add-section", f".cpos_intents={build / 'intents.json'}", elf])
     # launcher icon (tools/gen_icons.py): read by the OS from the file, never loaded with the app
     if (appdir / "icon.bin").exists():
         run([find_tool("xtensa-esp32s3-elf-objcopy"), "--add-section", f".cpos_icon={appdir / 'icon.bin'}", elf])

@@ -12,6 +12,7 @@
 //
 // La región y la repetición se guardan en la flash (NVS).
 
+#include <cpos_intent.h>
 #include <M5Cardputer.h>
 #include <Preferences.h>
 #include <esp_timer.h>
@@ -327,4 +328,43 @@ void loop()
         render();
     }
     delay(1);
+}
+
+// --- Intents (docs/intents.md) ----------------------------------------------------------------
+static bool parseRegion(const Intent &in, Region &r)
+{
+    char n[6];
+    if (!in.get("region", n, sizeof(n))) return true;  // sin region: la guardada
+    if (!strcmp(n, "na")) r = Region::NA;
+    else if (!strcmp(n, "eu")) r = Region::EU;
+    else if (!strcmp(n, "both")) r = Region::Both;
+    else return false;
+    return true;
+}
+
+void on_intent(const Intent &in, IntentResult &out)
+{
+    auto cfg = M5.config();
+    M5Cardputer.begin(cfg, false);
+    prefs.begin("tvbgone", false);
+    region = (Region)std::min<uint8_t>(prefs.getUChar("region", 0), 2);
+    if (in.is("tv.region")) {
+        if (!in.has("region") || !parseRegion(in, region)) { out.error(CPOS_INTENT_BAD_ARG); return; }
+        savePrefs();
+        out.ok();
+    } else if (in.is("tv.off_all")) {
+        if (!parseRegion(in, region)) { out.error(CPOS_INTENT_BAD_ARG); return; }  // solo esta vez: no se guarda
+        ledcSetup(IR_CH, 38000, IR_RES);
+        ledcAttachPin(IR_PIN, IR_CH);
+        irOff();
+        char name[8];
+        int n = total();
+        for (int i = 0; i < n; ++i) {
+            sendCode(codeAt(i, name));
+            delay(GAP_MS);
+        }
+        out.ok(n);
+    } else {
+        out.error(CPOS_INTENT_NO_APP);
+    }
 }

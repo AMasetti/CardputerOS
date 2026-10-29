@@ -1,12 +1,35 @@
 {
   "name": "karting",
   "displayName": "Karting",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Telemetría de karting sin GPS, con el Cardputer en el bolsillo: estima el recorrido con el IMU, detecta las vueltas solo por repetición del circuito y graba la sesión en la microSD.",
   "perms": [
     "audio_out",
     "imu",
     "sd"
   ],
-  "stack": 8192
+  "stack": 8192,
+  "intents": {
+    "kart.last_session": {
+      "title": "Última sesión guardada",
+      "needs": [
+        "sd"
+      ],
+      "returns": {
+        "session": "int",
+        "laps": "int",
+        "best_ms": "int",
+        "last_ms": "int"
+      },
+      "timeout_ms": 8000
+    },
+    "kart.best_ever": {
+      "title": "Mejor vuelta de todas las sesiones (ms)",
+      "needs": [
+        "sd"
+      ],
+      "returns": "int",
+      "timeout_ms": 20000
+    }
+  }
 }

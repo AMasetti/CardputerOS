@@ -1,5 +1,8 @@
 # Changelog — MP3 Player
 
+## 0.2.4
+- Intents (CardputerOS 0.7.0 and later, docs/intents.md): music.play_playlist, music.shuffle_all, music.playlists, music.volume, music.shuffle.
+
 ## 0.2.3
 - New vector launcher icon (CardputerOS 0.6.0 and later; 0.5.0 icons were bitmaps).
 

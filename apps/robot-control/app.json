@@ -1,9 +1,64 @@
 {
   "name": "robot-control",
   "displayName": "Robot Control",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Control remoto de robots y drones de juguete: Sphero BB-8/Ollie/R2-D2/R2-Q5/BB-9E/BOLT, Parrot Rolling Spider y Jumping Sumo (con video).",
-  "perms": ["ble", "wifi"],
+  "perms": [
+    "ble",
+    "wifi"
+  ],
   "abi_minor": 3,
-  "stack": 8192
+  "stack": 8192,
+  "intents": {
+    "robot.scan": {
+      "title": "Buscar robots BLE",
+      "args": {
+        "seconds": "int:2-15"
+      },
+      "needs": [
+        "ble"
+      ],
+      "returns": "list:16",
+      "timeout_ms": 20000
+    },
+    "robot.color": {
+      "title": "Color de un Sphero",
+      "args": {
+        "name": "text:12",
+        "r": "int:0-255",
+        "g": "int:0-255",
+        "b": "int:0-255"
+      },
+      "needs": [
+        "ble"
+      ],
+      "returns": "ok",
+      "timeout_ms": 25000
+    },
+    "robot.drive": {
+      "title": "Mover un Sphero un rato (fwd, right, back, left)",
+      "args": {
+        "name": "text:12",
+        "dir": "text:5",
+        "ms": "int:100-5000",
+        "speed": "int:10-100"
+      },
+      "needs": [
+        "ble"
+      ],
+      "returns": "ok",
+      "timeout_ms": 30000
+    },
+    "robot.sound": {
+      "title": "Sonido del R2-D2 / R2-Q5",
+      "args": {
+        "name": "text:12"
+      },
+      "needs": [
+        "ble"
+      ],
+      "returns": "ok",
+      "timeout_ms": 25000
+    }
+  }
 }

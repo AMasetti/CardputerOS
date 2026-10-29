@@ -1,11 +1,52 @@
 {
   "name": "mp3-player",
   "displayName": "MP3 Player",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Reproductor de MP3 estilo iPod: navega por artistas, discos, temas y playlists, con tapas, barra de avance y playlists editables.",
   "perms": [
     "audio_out",
     "sd"
   ],
-  "stack": 8192
+  "stack": 8192,
+  "intents": {
+    "music.play_playlist": {
+      "title": "Abrir y reproducir una playlist",
+      "args": {
+        "name": "text:40"
+      },
+      "returns": "ok",
+      "launch": true,
+      "timeout_ms": 8000
+    },
+    "music.shuffle_all": {
+      "title": "Abrir y reproducir todo en aleatorio",
+      "returns": "ok",
+      "launch": true,
+      "timeout_ms": 8000
+    },
+    "music.playlists": {
+      "title": "Listar playlists",
+      "needs": [
+        "sd"
+      ],
+      "returns": "list:16",
+      "timeout_ms": 8000
+    },
+    "music.volume": {
+      "title": "Volumen (desde la próxima vez)",
+      "args": {
+        "level": "int:0-100"
+      },
+      "returns": "ok",
+      "timeout_ms": 2000
+    },
+    "music.shuffle": {
+      "title": "Aleatorio on/off (desde la próxima vez)",
+      "args": {
+        "state": "text:3"
+      },
+      "returns": "ok",
+      "timeout_ms": 2000
+    }
+  }
 }

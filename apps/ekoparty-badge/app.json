@@ -1,8 +1,23 @@
 {
   "name": "ekoparty-badge",
   "displayName": "Ekoparty 22 Badge",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Muestra el logo de la Ekoparty 22 y un QR a AMasetti.com. Cualquier tecla alterna a QR a pantalla completa.",
   "perms": [],
-  "stack": 8192
+  "stack": 8192,
+  "intents": {
+    "badge.get_url": {
+      "title": "URL del QR",
+      "returns": "text:90",
+      "timeout_ms": 2000
+    },
+    "badge.set_url": {
+      "title": "Cambiar la URL del QR",
+      "args": {
+        "url": "text:90"
+      },
+      "returns": "ok",
+      "timeout_ms": 2000
+    }
+  }
 }

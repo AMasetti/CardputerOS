@@ -1,10 +1,25 @@
 {
   "name": "snake",
   "displayName": "Snake",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Snake clásico: flechas del teclado (; . , /) o WASD, velocidad creciente, récord guardado en la flash y sonido.",
   "perms": [
     "audio_out"
   ],
-  "stack": 8192
+  "stack": 8192,
+  "intents": {
+    "snake.high_score": {
+      "title": "Récord",
+      "returns": "int",
+      "timeout_ms": 2000
+    },
+    "snake.sound": {
+      "title": "Sonido (on/off)",
+      "args": {
+        "state": "text:3"
+      },
+      "returns": "ok",
+      "timeout_ms": 2000
+    }
+  }
 }

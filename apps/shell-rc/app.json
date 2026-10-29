@@ -1,10 +1,46 @@
 {
   "name": "shell-rc",
   "displayName": "Shell RC",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Control por BLE de los autos Shell Motorsport: generación 2024 (QCAR, AES) y 2025 (SL-, luces, turbo, donut, modo y batería).",
   "perms": [
     "ble"
   ],
-  "stack": 8192
+  "stack": 8192,
+  "intents": {
+    "car.drive": {
+      "title": "Manejar un rato (fwd, back, left, right)",
+      "args": {
+        "dir": "text:5",
+        "ms": "int:100-5000",
+        "speed": "int:1-4",
+        "lights": "text:3"
+      },
+      "returns": "ok",
+      "timeout_ms": 20000
+    },
+    "car.turbo": {
+      "title": "Turbo hacia adelante (gen. 2025)",
+      "args": {
+        "ms": "int:100-5000",
+        "lights": "text:3"
+      },
+      "returns": "ok",
+      "timeout_ms": 20000
+    },
+    "car.donut": {
+      "title": "Donut (gen. 2025)",
+      "args": {
+        "ms": "int:100-5000",
+        "lights": "text:3"
+      },
+      "returns": "ok",
+      "timeout_ms": 20000
+    },
+    "car.battery": {
+      "title": "Batería del auto (gen. 2025)",
+      "returns": "int:0-100",
+      "timeout_ms": 20000
+    }
+  }
 }

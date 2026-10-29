@@ -270,3 +270,47 @@ void loop()
         }
     }
 }
+
+// --- Intents (docs/intents.md) ----------------------------------------------------------------
+// Cada intent es una sesión corta: escanea, se conecta al robot, hace una cosa y se desconecta.
+static bool scanRobots(int secs)
+{
+    found.clear();
+    cpos_api->ble.begin();
+    if (cpos_api->ble.scan_start(secs * 1000, 1, 100, 80, 1) != 0 && !cpos_api->ble.scanning()) return false;
+    for (uint32_t t0 = millis(); millis() - t0 < (uint32_t)secs * 1000; delay(20)) pollScan();
+    cpos_api->ble.scan_stop();
+    return true;
+}
+
+void on_intent(const Intent &in, IntentResult &out)
+{
+    auto cfg = M5.config();
+    M5Cardputer.begin(cfg, false);
+    if (in.is("robot.scan")) {
+        int secs = in.i("seconds", 4);
+        if (secs < 2 || secs > 15) { out.error(CPOS_INTENT_BAD_ARG); return; }
+        if (!scanRobots(secs)) { out.error(CPOS_INTENT_FAILED); return; }
+        for (auto &f : found) if (f.fam != F_SUMO) out.item(f.name.c_str());
+        out.done();
+        return;
+    }
+    if (!in.is("robot.color") && !in.is("robot.drive") && !in.is("robot.sound")) { out.error(CPOS_INTENT_NO_APP); return; }
+    char want[24] = "";
+    in.get("name", want, sizeof(want));  // sin name: el robot Sphero con mejor señal
+    if (!scanRobots(5)) { out.error(CPOS_INTENT_FAILED); return; }
+    const Found *pick = nullptr;
+    for (auto &f : found) {
+        if (f.fam != F_SPHERO1 && f.fam != F_SPHERO2) continue;
+        if (want[0] ? f.name == want : (!pick || f.rssi > pick->rssi)) { pick = &f; if (want[0]) break; }
+    }
+    if (!pick) { out.error(CPOS_INTENT_FAILED); return; }
+    Robot *r = makeRobot(*pick);
+    std::string status;
+    if (!r || !r->connect(status)) { delete r; out.error(CPOS_INTENT_FAILED); return; }
+    int rc = r->intent(in);
+    r->close();  // desconexión limpia: si no, el robot rechaza la próxima conexión
+    delete r;
+    if (rc != CPOS_INTENT_OK) out.error(rc);
+    else out.ok();
+}
