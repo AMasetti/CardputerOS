@@ -116,4 +116,5 @@ void __throw_invalid_argument(const char *) { cpos_api->exit_app(-4); for (;;) {
 void __throw_bad_function_call() { cpos_api->exit_app(-4); for (;;) {} }
 void __throw_system_error(int) { cpos_api->exit_app(-4); for (;;) {} }
 void terminate() noexcept { cpos_api->exit_app(-4); for (;;) {} }
+void __glibcxx_assert_fail(const char *, int, const char *, const char *) noexcept { cpos_api->exit_app(-6); for (;;) {} }
 }

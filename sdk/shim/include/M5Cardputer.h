@@ -121,7 +121,9 @@ public:
     void pushImage(int x, int y, int w, int h, const uint16_t *d, uint16_t transparent) { GFXAPI.blit(target(), x, y, w, h, d, 1, transparent); }
     // image decoders are not part of the OS yet
     bool drawPng(const uint8_t *, uint32_t, int = 0, int = 0, int = 0, int = 0, int = 0, int = 0, float = 1.0f, float = 0.0f) { return false; }
-    bool drawJpg(const uint8_t *, uint32_t, int = 0, int = 0, int = 0, int = 0, int = 0, int = 0, float = 1.0f, float = 0.0f) { return false; }
+    // baseline JPEG from memory (ROM decoder in the OS); needs ABI minor 1. Scale options: see cpos_api->gfx.draw_jpg
+    bool drawJpg(const uint8_t *d, uint32_t len, int x = 0, int y = 0, int = 0, int = 0, int = 0, int = 0, float = 1.0f, float = 0.0f) { return GFXAPI.draw_jpg(target(), d, len, x, y, 0) == 0; }
+    bool drawJpgScaled(const uint8_t *d, uint32_t len, int x, int y, int scale_log2) { return GFXAPI.draw_jpg(target(), d, len, x, y, scale_log2) == 0; }
     // cursor based text output
     void setCursor(int x, int y) { cx_ = x; cy_ = y; }
     size_t print(const char *s) { int w = drawStringTL(s, cx_, cy_); cx_ += w; return strlen(s); }

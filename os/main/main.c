@@ -19,18 +19,19 @@ static const char *TAG = "cpos";
  * screens with scripted keys. Output goes to the log (FRAME blocks) for offline inspection.
  */
 #include "esp_timer.h"
+#include "test_jpeg.h"
 static int64_t s_start_us;
 static char s_name[40];
 static volatile int s_dumped;
 
 static void kill_cb(void *arg) {
-    if (g_app && esp_timer_get_time() - s_start_us > 2200000) g_app->exit_req = 1;
+    if (g_app && esp_timer_get_time() - s_start_us > (g_app && !strncmp(g_app->img.header.name, "sumo", 4) ? 9000000 : 2200000)) g_app->exit_req = 1;
 }
 
 static void frame_task(void *arg) {
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(100));
-        if (g_app && !s_dumped && esp_timer_get_time() - s_start_us > 1600000) {
+        if (g_app && !s_dumped && esp_timer_get_time() - s_start_us > 1600000 && !(g_app && !strncmp(g_app->img.header.name, "sumo", 4))) {
             s_dumped = 1;
             hal_display_dump(s_name);
         }
@@ -38,6 +39,20 @@ static void frame_task(void *arg) {
 }
 
 static void ui_task(void *arg) { cpos_ui_run(); }
+
+/* the Sumo app has a demo mode: press 'd' on its first screen once it is up */
+static void script_task(void *arg) {
+    for (;;) {
+        vTaskDelay(pdMS_TO_TICKS(200));
+        if (g_app && !strncmp(g_app->img.header.name, "sumo", 4) && esp_timer_get_time() - s_start_us > 2500000) {
+            hal_display_dump("sumo-scan");
+            hal_kbd_inject('d');
+            vTaskDelay(pdMS_TO_TICKS(2500));
+            hal_display_dump("sumo-demo");
+            for (;;) vTaskDelay(pdMS_TO_TICKS(1000));
+        }
+    }
+}
 
 static void watch_task(void *arg) {
     for (int i = 0; i < 3; i++) {
@@ -48,7 +63,19 @@ static void watch_task(void *arg) {
     }
     vTaskDelete(NULL);
 }
+static void jpeg_test(void) {
+    cpos_canvas_t *c = gfx_create(CPOS_SCREEN_W, CPOS_SCREEN_H, 16);
+    gfx_fill(c, 0x0000);
+    int rc = cpos_api_get()->gfx.draw_jpg(c, test_jpeg, sizeof(test_jpeg), 0, 15, 2);
+    ESP_LOGI(TAG, "SELFTEST jpeg decode rc=%d (%u bytes)", rc, (unsigned)sizeof(test_jpeg));
+    gfx_push(c, NULL, 0, 0, -1);
+    hal_display_dump("jpeg-test");
+    gfx_destroy(c);
+}
+
 static void selftest(void) {
+    jpeg_test();
+    xTaskCreate(script_task, "script", 4096, NULL, 2, NULL);
     xTaskCreate(watch_task, "watch", 4096, NULL, 2, NULL);
     xTaskCreate(frame_task, "frames", 4096, NULL, 2, NULL);
     DIR *d = opendir("/sdcard/apps");

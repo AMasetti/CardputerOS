@@ -60,6 +60,12 @@ static void on_event(void *arg, esp_event_base_t base, int32_t id, void *data) {
 
 void cpos_wifi_ensure(void) {
     if (s_inited) return;
+#ifdef CONFIG_CPOS_EMULATOR
+    /* no radio in the emulator: pretend it is up and let scans return two fake networks */
+    s_ev = xEventGroupCreate();
+    s_inited = true;
+    return;
+#endif
     s_ev = xEventGroupCreate();
     esp_netif_init();
     esp_event_loop_create_default();
@@ -169,6 +175,14 @@ static int n_mode(int sta) {
 static int n_scan_start(int async) {
     NEED_WIFI(-1);
     cpos_wifi_ensure();
+#ifdef CONFIG_CPOS_EMULATOR
+    memset(s_aps, 0, sizeof(s_aps));
+    strcpy((char *)s_aps[0].ssid, "JumpingSumo_a1b2c3"); s_aps[0].rssi = -48; s_aps[0].primary = 6;
+    strcpy((char *)s_aps[1].ssid, "HomeWifi"); s_aps[1].rssi = -60; s_aps[1].authmode = WIFI_AUTH_WPA2_PSK;
+    strcpy((char *)s_aps[2].ssid, "JumpingSumo_9f8e7d"); s_aps[2].rssi = -71; s_aps[2].primary = 11;
+    s_ap_count = 3;
+    return async ? 0 : 3;
+#endif
     xEventGroupClearBits(s_ev, EV_SCAN);
     s_ap_count = -1;
     wifi_scan_config_t sc = {.show_hidden = false};
@@ -238,7 +252,12 @@ static int n_setsockopt(int fd, int lv, int o, const void *v, uint32_t l) {
 }
 static int n_fcntl(int fd, int c, int a) { return cpos_has_perm(CPOS_PERM_WIFI) ? lwip_fcntl(fd, c, a) : -1; }
 
+static int n_sock_connect(int fd, const void *a, uint32_t l) { return cpos_has_perm(CPOS_PERM_WIFI) ? lwip_connect(fd, a, l) : -1; }
+static int n_sock_send(int fd, const void *b, size_t n, int f) { return cpos_has_perm(CPOS_PERM_WIFI) ? lwip_send(fd, b, n, f) : -1; }
+static int n_sock_recv(int fd, void *b, size_t n, int f) { return cpos_has_perm(CPOS_PERM_WIFI) ? lwip_recv(fd, b, n, f) : -1; }
+
 void cpos_net_fill(cpos_net_api_t *n) {
+    n->sock_connect = n_sock_connect; n->sock_send = n_sock_send; n->sock_recv = n_sock_recv;
     n->mode = n_mode; n->scan_start = n_scan_start; n->scan_count = n_scan_count; n->scan_get = n_scan_get;
     n->scan_clear = n_scan_clear; n->connect = n_connect; n->disconnect = n_disconnect; n->status = n_status;
     n->ip = n_ip; n->broadcast_ip = n_bcast; n->rssi = n_rssi; n->ssid = n_ssid; n->set_sleep = n_sleep;

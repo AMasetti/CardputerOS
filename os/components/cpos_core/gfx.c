@@ -5,6 +5,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "rom/tjpgd.h"
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -562,6 +563,46 @@ static void blit(cpos_canvas_t *c, int x, int y, int w, int h, const uint16_t *p
     mark_dirty(c, x < 0 ? 0 : x, y < 0 ? 0 : y, x + w > c->w ? c->w : x + w, y + h > c->h ? c->h : y + h);
 }
 
+/* ---- JPEG (ESP32-S3 ROM decoder, baseline only) ----------------------------------------- */
+typedef struct { const uint8_t *data; size_t len, pos; cpos_canvas_t *c; int x, y; } jpg_ctx_t;
+
+static unsigned jpg_in(JDEC *jd, uint8_t *buf, unsigned n) {
+    jpg_ctx_t *j = jd->device;
+    size_t left = j->len - j->pos;
+    if (n > left) n = left;
+    if (buf) memcpy(buf, j->data + j->pos, n);
+    j->pos += n;
+    return n;
+}
+
+static unsigned jpg_out(JDEC *jd, void *bitmap, JRECT *r) {
+    jpg_ctx_t *j = jd->device;
+    const uint8_t *p = bitmap;
+    for (int yy = r->top; yy <= r->bottom; yy++) {
+        int dy = j->y + yy;
+        for (int xx = r->left; xx <= r->right; xx++, p += 3) {
+            int dx = j->x + xx;
+            if (dx < j->c->cx0 || dx >= j->c->cx1 || dy < j->c->cy0 || dy >= j->c->cy1) continue;
+            j->c->buf[dy * j->c->w + dx] = gfx_rgb(p[0], p[1], p[2]);
+        }
+    }
+    return 1;
+}
+
+static int draw_jpg(cpos_canvas_t *c, const uint8_t *data, size_t len, int x, int y, int scale) {
+    if (!c || !data || len < 4 || scale < 0 || scale > 3) return -1;
+    void *work = malloc(4096);
+    if (!work) return -2;
+    jpg_ctx_t j = {data, len, 0, c, x, y};
+    JDEC jd;
+    int rc = -3;
+    if (jd_prepare(&jd, jpg_in, work, 4096, &j) == JDR_OK && jd_decomp(&jd, jpg_out, (uint8_t)scale) == JDR_OK) rc = 0;
+    free(work);
+    int w = 640 >> scale, h = 480 >> scale; /* dirty area: the decoded size is not known after a failure */
+    mark_dirty(c, x < 0 ? 0 : x, y < 0 ? 0 : y, x + w > c->w ? c->w : x + w, y + h > c->h ? c->h : y + h);
+    return rc;
+}
+
 /* ---- QR codes (encoder added in qr.c) ------------------------------------ */
 void gfx_qrcode(cpos_canvas_t *c, const char *text, int x, int y, int size);
 
@@ -603,4 +644,5 @@ void gfx_fill_api(cpos_gfx_api_t *a) {
     a->qrcode = gfx_qrcode;
     a->set_brightness = hal_display_brightness;
     a->blit = blit;
+    a->draw_jpg = draw_jpg;
 }

@@ -37,7 +37,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("app")
     ap.add_argument("--out", default=str(ROOT / "dist"))
-    ap.add_argument("--abi-minor", type=int, default=0)
+    ap.add_argument("--abi-minor", type=int, default=None)
     a = ap.parse_args()
 
     appdir = pathlib.Path(a.app).resolve()
@@ -47,6 +47,7 @@ def main():
     for p in meta.get("perms", []):
         perms |= PERMS[p]
     stack = int(meta.get("stack", 8192))
+    abi_minor = a.abi_minor if a.abi_minor is not None else int(meta.get("abi_minor", 0))
 
     gcc = find_tool("xtensa-esp32s3-elf-gcc")
     gxx = find_tool("xtensa-esp32s3-elf-g++")
@@ -61,7 +62,7 @@ def main():
     hdr.write_text(f'''#include <cpos/abi.h>
 extern int cpos_app_entry(const cpos_api_t *api);
 __attribute__((section(".cpos_app"), used)) const cpos_app_header_t cpos_app_header = {{
-    .magic = CPOS_APP_MAGIC, .abi_major = CPOS_ABI_MAJOR, .abi_minor = {a.abi_minor},
+    .magic = CPOS_APP_MAGIC, .abi_major = CPOS_ABI_MAJOR, .abi_minor = {abi_minor},
     .perms = {perms}u, .stack_size = {stack}u, .entry = cpos_app_entry,
     .name = "{name}", .version = "{version}",
 }};
@@ -71,7 +72,8 @@ __attribute__((section(".cpos_app"), used)) const cpos_app_header_t cpos_app_hea
               "-I", str(ROOT / "sdk/include"), "-I", str(ROOT / "sdk/shim/include"),
               "-I", str(appdir / "src"), "-DARDUINO=10812", "-DCPOS_APP=1", f'-DAPP_VERSION="{version}"',
               "-Wall", "-Wno-unused-function", "-Wno-unused-variable", "-Wno-psabi"]
-    cxxflags = common + ["-std=gnu++17", "-fno-exceptions", "-fno-rtti", "-fno-threadsafe-statics", "-Wno-reorder"]
+    # _GLIBCXX_ASSERTIONS makes std::string instantiate in the app instead of importing libstdc++'s copy
+    cxxflags = common + ["-std=gnu++17", "-fno-exceptions", "-fno-rtti", "-fno-threadsafe-statics", "-Wno-reorder", "-D_GLIBCXX_ASSERTIONS"]
     cflags = common + ["-std=gnu17", "-fno-builtin"]
 
     sources = []

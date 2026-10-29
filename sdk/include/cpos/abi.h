@@ -26,7 +26,7 @@ extern "C" {
 #endif
 
 #define CPOS_ABI_MAJOR 1
-#define CPOS_ABI_MINOR 0
+#define CPOS_ABI_MINOR 1
 
 /* ---- permissions (declared in the app header) ----------------------------- */
 #define CPOS_PERM_SD        (1u << 0)
@@ -118,7 +118,9 @@ typedef struct {
     void (*set_brightness)(uint8_t v);
     /* copy a rectangle of RGB565 pixels; swap = bytes are big-endian; transparent < 0: opaque */
     void (*blit)(cpos_canvas_t *c, int x, int y, int w, int h, const uint16_t *pix, int swap, int transparent);
-    uintptr_t reserved[4]; /* room for minor additions */
+    /* minor 1: decode a baseline JPEG into the canvas at x,y; scale_log2 0..3 = 1, 1/2, 1/4, 1/8. 0 on success */
+    int (*draw_jpg)(cpos_canvas_t *c, const uint8_t *data, size_t len, int x, int y, int scale_log2);
+    uintptr_t reserved[3]; /* room for minor additions */
 } cpos_gfx_api_t;
 
 /* ---- audio, sensors, power, io ---------------------------------------------- */
@@ -204,7 +206,11 @@ typedef struct {
     int (*setsockopt)(int fd, int level, int opt, const void *val, uint32_t len);
     int (*fcntl)(int fd, int cmd, int arg);
     int (*close)(int fd);
-    uintptr_t reserved[4]; /* room for minor additions */
+    /* minor 1: stream sockets (the fd comes from socket()) */
+    int (*sock_connect)(int fd, const void *addr, uint32_t len);
+    int (*sock_send)(int fd, const void *buf, size_t len, int flags);
+    int (*sock_recv)(int fd, void *buf, size_t len, int flags);
+    uintptr_t reserved[1]; /* room for minor additions */
 } cpos_net_api_t;
 
 /* ---- libc ---------------------------------------------------------------------- */
