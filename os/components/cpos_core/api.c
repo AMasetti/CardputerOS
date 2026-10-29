@@ -60,6 +60,7 @@ static void a_kbd_state(cpos_kbd_t *o) {
 static void *a_malloc(size_t n) {
     if (!g_app || !n) return NULL;
     alloc_hdr_t *h = heap_caps_malloc(n + HDR, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (!h && gfx_drop_spare()) h = heap_caps_malloc(n + HDR, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     if (!h) return NULL;
     h->size = n;
     h->prev = NULL;
@@ -293,6 +294,7 @@ const cpos_api_t *cpos_api_get(void) {
         cpos_net_fill(&s_api_rw.net);
         cpos_audio_fill(&s_api_rw.audio);
         cpos_imu_fill(&s_api_rw.imu);
+        cpos_ble_fill(&s_api_rw.ble, &s_api_rw.crypto);
         extern void cpos_gpio_fill(cpos_gpio_api_t *);
         cpos_gpio_fill(&s_api_rw.gpio);
     }
@@ -305,6 +307,7 @@ void cpos_app_release(app_ctx_t *a) {
     gfx_screen_release();
     cpos_app_cleanup_net(a);
     cpos_app_cleanup_audio(a);
+    cpos_app_cleanup_ble(a);
     cpos_app_cleanup_gpio(a);
     cpos_app_cleanup_prefs(a);
     cpos_app_free_all(a);

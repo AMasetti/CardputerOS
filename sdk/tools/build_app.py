@@ -47,6 +47,9 @@ def main():
     for p in meta.get("perms", []):
         perms |= PERMS[p]
     stack = int(meta.get("stack", 8192))
+    # the ble and crypto tables arrived in minor 1: an app using them needs an OS that has them
+    if "ble" in meta.get("perms", []):
+        a.abi_minor = max(a.abi_minor, 1)
 
     gcc = find_tool("xtensa-esp32s3-elf-gcc")
     gxx = find_tool("xtensa-esp32s3-elf-g++")

@@ -26,7 +26,7 @@ extern "C" {
 #endif
 
 #define CPOS_ABI_MAJOR 1
-#define CPOS_ABI_MINOR 0
+#define CPOS_ABI_MINOR 1
 
 /* ---- permissions (declared in the app header) ----------------------------- */
 #define CPOS_PERM_SD        (1u << 0)
@@ -207,6 +207,51 @@ typedef struct {
     uintptr_t reserved[4]; /* room for minor additions */
 } cpos_net_api_t;
 
+/* ---- bluetooth LE (minor 1): central/observer, one connection ------------------
+ * The OS runs the stack; the app polls scan reports and notifications, so no app code
+ * ever runs on the BLE task. Addresses are little endian (byte 0 = least significant). */
+typedef struct {
+    uint8_t addr[6];
+    uint8_t addr_type;
+    uint8_t event;      /* 0 ADV_IND, 1 DIRECT_IND, 2 SCAN_IND, 3 NONCONN_IND, 4 SCAN_RSP */
+    int8_t rssi;
+    uint8_t len;
+    uint8_t data[31];   /* raw advertising payload (AD structures) */
+} cpos_ble_adv_t;
+
+typedef struct {
+    uint8_t uuid[16];   /* 128-bit form, little endian (16/32-bit UUIDs expanded on the base UUID) */
+    uint8_t uuid_bits;  /* 16, 32 or 128: the size the peer used */
+    uint8_t props;      /* characteristics: GATT property bits (0x02 read, 0x04 write no rsp, 0x08 write, 0x10 notify, 0x20 indicate) */
+    uint16_t handle;    /* service: start handle; characteristic: value handle */
+    uint16_t end_handle;/* service: end handle; characteristic: last handle of the characteristic */
+} cpos_ble_attr_t;
+
+typedef struct {
+    int (*begin)(void);                                  /* 1 when the stack is up */
+    void (*end)(void);
+    int (*scan_start)(uint32_t ms, int active, uint16_t interval_ms, uint16_t window_ms, int filter_duplicates); /* ms 0 = until stopped */
+    void (*scan_stop)(void);
+    int (*scanning)(void);
+    int (*scan_read)(cpos_ble_adv_t *out);               /* 1 = one report, 0 = none queued */
+    int (*connect)(const uint8_t addr[6], uint8_t addr_type, uint32_t timeout_ms); /* 0 ok */
+    void (*disconnect)(void);
+    int (*connected)(void);
+    int (*services)(cpos_ble_attr_t *out, int max);      /* discovers once per connection; returns count */
+    int (*characteristics)(int service, cpos_ble_attr_t *out, int max);
+    int (*read)(uint16_t handle, uint8_t *buf, size_t max);                   /* bytes, <0 error */
+    int (*write)(uint16_t handle, const uint8_t *data, size_t len, int with_response); /* 0 ok */
+    int (*subscribe)(uint16_t value_handle, uint16_t end_handle, int mode);    /* mode 1 notify, 2 indicate, 0 off */
+    int (*notify_read)(uint16_t *handle, uint8_t *buf, size_t max);           /* bytes, -1 none queued */
+    void (*set_power)(int level);                        /* esp_power_level_t value */
+    uintptr_t reserved[4];
+} cpos_ble_api_t;
+
+typedef struct {
+    int (*aes_ecb)(const uint8_t *key, int key_bits, int encrypt, const uint8_t in[16], uint8_t out[16]);
+    uintptr_t reserved[4];
+} cpos_crypto_api_t;
+
 /* ---- libc ---------------------------------------------------------------------- */
 #include "libc_table.h"
 
@@ -242,6 +287,9 @@ struct cpos_api {
     cpos_prefs_api_t prefs;
     cpos_net_api_t net;
     cpos_libc_t libc;
+    /* minor 1 */
+    cpos_ble_api_t ble;
+    cpos_crypto_api_t crypto;
 };
 
 #ifdef __cplusplus

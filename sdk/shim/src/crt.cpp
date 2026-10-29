@@ -10,6 +10,7 @@
 #include <time.h>
 
 const cpos_api_t *cpos_api;
+void (*cpos_loop_hook)(void); /* set by shims that deliver events between loop() calls (BLE) */
 
 void setup();
 void loop();
@@ -27,7 +28,10 @@ int cpos_app_entry(const cpos_api_t *api) {
     for (ctor_t *c = __init_array_start; c < __init_array_end; c++) (*c)();
     for (ctor_t *c = __ctors_end; c > __ctors_start;) (*--c)();
     setup();
-    while (!api->exit_requested()) loop();
+    while (!api->exit_requested()) {
+        loop();
+        if (cpos_loop_hook) cpos_loop_hook();
+    }
     return 0;
 }
 
@@ -117,3 +121,37 @@ void __throw_bad_function_call() { cpos_api->exit_app(-4); for (;;) {} }
 void __throw_system_error(int) { cpos_api->exit_app(-4); for (;;) {} }
 void terminate() noexcept { cpos_api->exit_app(-4); for (;;) {} }
 }
+
+// ---- std::string: the library's prebuilt copy is not linked, so instantiate it here -----
+#include <string>
+template class std::__cxx11::basic_string<char>;
+
+// ---- std::mutex: app code runs on a single task (the OS delivers events to it), so
+// locking has nothing to wait for
+extern "C" {
+int pthread_mutex_lock(void *) { return 0; }
+int pthread_mutex_unlock(void *) { return 0; }
+int pthread_mutex_trylock(void *) { return 0; }
+int pthread_mutex_init(void *, const void *) { return 0; }
+int pthread_mutex_destroy(void *) { return 0; }
+}
+
+// ---- 64-bit string to integer (not in the OS table) --------------------------------------
+extern "C" unsigned long long strtoull(const char *s, char **end, int base) {
+    const char *p = s;
+    while (*p == ' ' || *p == '\t' || *p == '\n') p++;
+    bool neg = false;
+    if (*p == '+' || *p == '-') neg = *p++ == '-';
+    if ((base == 0 || base == 16) && p[0] == '0' && (p[1] == 'x' || p[1] == 'X')) { p += 2; base = 16; }
+    else if (base == 0) base = p[0] == '0' ? 8 : 10;
+    unsigned long long v = 0;
+    const char *start = p;
+    for (;; p++) {
+        int d = (*p >= '0' && *p <= '9') ? *p - '0' : (*p >= 'a' && *p <= 'z') ? *p - 'a' + 10 : (*p >= 'A' && *p <= 'Z') ? *p - 'A' + 10 : 99;
+        if (d >= base) break;
+        v = v * base + d;
+    }
+    if (end) *end = (char *)(p == start ? s : p);
+    return neg ? -v : v;
+}
+extern "C" long long strtoll(const char *s, char **end, int base) { return (long long)strtoull(s, end, base); }

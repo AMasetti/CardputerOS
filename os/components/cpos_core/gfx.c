@@ -40,12 +40,41 @@ static inline uint16_t col16(uint32_t c) {
 }
 
 /* ---- lifecycle ------------------------------------------------------------ */
+/* The launcher's full-screen buffer is kept here while an app runs: the first big canvas the
+ * app asks for (its screen or a full-screen sprite) gets it, so it never needs to find 64 KB in
+ * one piece in a heap the app has already split. Released if the app runs out of memory. */
+static uint16_t *s_spare;
+static size_t s_spare_px;
+
+void gfx_keep_spare(cpos_canvas_t *c) {
+    if (!c) return;
+    gfx_drop_spare();
+    s_spare = c->buf;
+    s_spare_px = (size_t)c->w * c->h;
+    free(c);
+}
+
+int gfx_drop_spare(void) {
+    if (!s_spare) return 0;
+    free(s_spare);
+    s_spare = NULL;
+    return 1;
+}
+
 cpos_canvas_t *gfx_create(int w, int h, int depth) {
     (void)depth;
     if (w <= 0 || h <= 0) return NULL;
     cpos_canvas_t *c = heap_caps_calloc(1, sizeof(*c), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     if (!c) return NULL;
-    c->buf = heap_caps_calloc((size_t)w * h, 2, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    size_t px = (size_t)w * h;
+    if (s_spare && px <= s_spare_px && px * 2 >= s_spare_px) {
+        c->buf = s_spare;
+        s_spare = NULL;
+        memset(c->buf, 0, px * 2);
+    } else {
+        c->buf = heap_caps_calloc(px, 2, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        if (!c->buf && gfx_drop_spare()) c->buf = heap_caps_calloc(px, 2, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    }
     if (!c->buf) {
         free(c);
         return NULL;

@@ -8,6 +8,8 @@
 
 cpos_canvas_t *gfx_create(int w, int h, int depth);
 void gfx_destroy(cpos_canvas_t *c);
+void gfx_keep_spare(cpos_canvas_t *c); /* hold a full-screen buffer for the next big canvas */
+int gfx_drop_spare(void);               /* 1 if a held buffer was freed */
 cpos_canvas_t *gfx_screen(void);
 void gfx_push(cpos_canvas_t *src, cpos_canvas_t *dst, int x, int y, int transparent);
 void gfx_flush_screen(void); /* send pending direct-draw changes to the panel */

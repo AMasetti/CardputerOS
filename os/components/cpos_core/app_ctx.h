@@ -50,6 +50,8 @@ void cpos_boot_check(char *msg, size_t n);           /* crash report of the prev
 /* services shared with the UI */
 void cpos_net_fill(cpos_net_api_t *n);
 void cpos_audio_fill(cpos_audio_api_t *a);
+void cpos_ble_fill(cpos_ble_api_t *a, cpos_crypto_api_t *c);
+void cpos_app_cleanup_ble(app_ctx_t *a);
 void cpos_ui_beep(int hz, int ms);
 void cpos_ui_audio_off(void);
 void cpos_imu_fill(cpos_imu_api_t *a);

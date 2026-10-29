@@ -231,7 +231,7 @@ static void scan_apps(void) {
 }
 
 static void release_canvas(void) {
-    gfx_destroy(ui_cv);
+    gfx_keep_spare(ui_cv);
     ui_cv = NULL;
 }
 

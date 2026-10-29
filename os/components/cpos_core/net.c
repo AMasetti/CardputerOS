@@ -60,16 +60,20 @@ static void on_event(void *arg, esp_event_base_t base, int32_t id, void *data) {
 
 void cpos_wifi_ensure(void) {
     if (s_inited) return;
-    s_ev = xEventGroupCreate();
-    esp_netif_init();
-    esp_event_loop_create_default();
-    esp_netif_create_default_wifi_sta();
+    static bool base_done; /* netif, event loop and handlers outlive a cpos_wifi_stop() */
+    if (!base_done) {
+        s_ev = xEventGroupCreate();
+        esp_netif_init();
+        esp_event_loop_create_default();
+        esp_netif_create_default_wifi_sta();
+        esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, on_event, NULL);
+        esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, on_event, NULL);
+        base_done = true;
+    }
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     cfg.nvs_enable = 0;
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
     esp_wifi_set_storage(WIFI_STORAGE_RAM);
-    esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, on_event, NULL);
-    esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, on_event, NULL);
     esp_wifi_set_mode(WIFI_MODE_STA);
     ESP_ERROR_CHECK(esp_wifi_start());
     s_inited = true;
