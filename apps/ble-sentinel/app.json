@@ -1,7 +1,7 @@
 {
   "name": "ble-sentinel",
   "displayName": "BLE Sentinel",
-  "version": "0.11.1",
+  "version": "0.11.2",
   "description": "Detector pasivo de dispositivos BLE: identifica drones (Remote ID), smart glasses, trackers y más por firma de manufacturer data. Solo escucha, nunca anuncia.",
   "perms": [
     "audio_out",

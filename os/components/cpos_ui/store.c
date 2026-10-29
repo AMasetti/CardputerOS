@@ -174,7 +174,7 @@ static int fetch_tags(tags_ctx_t *c) {
 }
 
 /* ---- installed apps ----------------------------------------------------------------------- */
-typedef struct { char name[24]; int v[3]; char file[64]; } inst_t;
+typedef struct { char name[24]; int v[3]; char file[64]; uint32_t perms; } inst_t;
 
 static int list_installed(inst_t *out, int max) {
     int n = 0;
@@ -190,6 +190,7 @@ static int list_installed(inst_t *out, int max) {
         if (cpos_read_header(p, &h, NULL)) continue;
         strlcpy(out[n].name, h.name, sizeof(out[n].name));
         parse_version(h.version, out[n].v);
+        out[n].perms = h.perms;
         strlcpy(out[n].file, e->d_name, sizeof(out[n].file));
         n++;
     }
@@ -218,43 +219,52 @@ static void perms_text(uint32_t p, char *out, size_t n) {
     if (!out[0]) strlcpy(out, "none", n);
 }
 
-static int install_app(const char *name, const int v[3]) {
+/* quiet = part of "update all": no messages, and the permission question only when the new version asks
+ * for more than the installed one. Returns 0 installed, -1 failed or declined, -2 needs a newer OS. */
+static int install_app(const char *name, const int v[3], int quiet) {
     char tag[64], url[200], tmp[] = APPS_DIR "/.download";
     snprintf(tag, sizeof(tag), "%s-v%d.%d.%d", name, v[0], v[1], v[2]);
     snprintf(url, sizeof(url), "https://github.com/%s/releases/download/%s/%s.elf", store_repo(), tag, tag);
     mkdir(APPS_DIR, 0777);
     FILE *f = fopen(tmp, "wb");
-    if (!f) { ui_message("Install", "Cannot write to the SD card."); return -1; }
+    if (!f) { if (!quiet) ui_message("Install", "Cannot write to the SD card."); return -1; }
     ui_status("Downloading...", tag);
     int st = http_get(url, file_sink, f, NULL, NULL);
     fclose(f);
     if (st != 200) {
         unlink(tmp);
-        ui_message("Install", st == 404 ? "This version has no .elf file attached." : "Download failed.");
+        if (!quiet) ui_message("Install", st == 404 ? "This version has no .elf file attached." : "Download failed.");
         return -1;
     }
     cpos_app_header_t h;
     const char *err = NULL;
     if (cpos_read_header(tmp, &h, &err)) {
         unlink(tmp);
-        char m[80];
-        snprintf(m, sizeof(m), "Invalid app file: %s", err ? err : "?");
-        ui_message("Install", m);
+        if (!quiet) {
+            char m[80];
+            snprintf(m, sizeof(m), "Invalid app file: %s", err ? err : "?");
+            ui_message("Install", m);
+        }
         return -1;
     }
     if (h.abi_major != CPOS_ABI_MAJOR || h.abi_minor > CPOS_ABI_MINOR) {
         unlink(tmp);
-        ui_message("Install", "This app needs a different OS version. Update the OS first.");
-        return -1;
+        if (!quiet) ui_message("Install", "This app needs a different OS version. Update the OS first.");
+        return -2;
     }
-    char pt[64], m[160];
-    perms_text(h.perms, pt, sizeof(pt));
-    snprintf(m, sizeof(m), "%s %s will be able to use: %s. Install?", h.name, h.version, pt);
-    if (!ui_confirm("Permissions", m)) { unlink(tmp); return -1; }
-
-    /* keep only the newest version of this app */
     static inst_t old[40];
     int n = list_installed(old, 40);
+    uint32_t had = 0;
+    int found = 0;
+    for (int i = 0; i < n; i++) if (!strcmp(old[i].name, h.name)) { had = old[i].perms; found = 1; }
+    if (!quiet || !found || (h.perms & ~had)) {
+        char pt[64], m[160];
+        perms_text(h.perms, pt, sizeof(pt));
+        snprintf(m, sizeof(m), "%s %s will be able to use: %s. Install?", h.name, h.version, pt);
+        if (!ui_confirm("Permissions", m)) { unlink(tmp); return -1; }
+    }
+
+    /* keep only the newest version of this app */
     for (int i = 0; i < n; i++) {
         if (strcmp(old[i].name, h.name)) continue;
         char p[100];
@@ -264,8 +274,8 @@ static int install_app(const char *name, const int v[3]) {
     char dst[100];
     snprintf(dst, sizeof(dst), APPS_DIR "/%s.elf", tag);
     unlink(dst);
-    if (rename(tmp, dst)) { ui_message("Install", "Could not save the app."); return -1; }
-    ui_message("Install", "Installed. Find it in the launcher.");
+    if (rename(tmp, dst)) { if (!quiet) ui_message("Install", "Could not save the app."); return -1; }
+    if (!quiet) ui_message("Install", "Installed. Find it in the launcher.");
     return 0;
 }
 
@@ -294,6 +304,36 @@ static int update_os(const int v[3]) {
     return 0;
 }
 
+/* installed apps with a newer release */
+static int outdated(const tags_ctx_t *tags, const inst_t *inst, int ni, int *which) {
+    int n = 0;
+    for (int i = 0; i < tags->n; i++) {
+        if (!strcmp(tags->t[i].name, "os")) continue;
+        for (int j = 0; j < ni; j++)
+            if (!strcmp(inst[j].name, tags->t[i].name) && vcmp(inst[j].v, tags->t[i].v) < 0) { if (which) which[n] = i; n++; break; }
+    }
+    return n;
+}
+
+static void update_all(const tags_ctx_t *tags, const inst_t *inst, int ni) {
+    int which[MAX_TAGS];
+    int n = outdated(tags, inst, ni, which);
+    if (!n) { ui_message("Update all", "All apps are up to date."); return; }
+    int ok = 0, fail = 0, needs_os = 0;
+    for (int k = 0; k < n; k++) {
+        char l1[40];
+        snprintf(l1, sizeof(l1), "Updating %d/%d", k + 1, n);
+        ui_status(l1, tags->t[which[k]].name);
+        int rc = install_app(tags->t[which[k]].name, tags->t[which[k]].v, 1);
+        if (rc == 0) ok++;
+        else if (rc == -2) needs_os++;
+        else fail++;
+    }
+    char m[120];
+    snprintf(m, sizeof(m), "%d updated%s%s%s", ok, needs_os ? ", " : "", needs_os ? "some need an OS update first" : "", fail ? ", some failed" : "");
+    ui_message("Update all", m);
+}
+
 void store_screen(void) {
     if (!hal_sd_ready()) { ui_message("Store", "Insert an SD card first."); return; }
     ui_wait_background_net();
@@ -313,8 +353,14 @@ void store_screen(void) {
     for (;;) {
         static inst_t inst[40];
         int ni = list_installed(inst, 40);
-        static ui_item_t items[MAX_TAGS];
-        int idx[MAX_TAGS], n = 0;
+        static ui_item_t items[MAX_TAGS + 1];
+        int idx[MAX_TAGS + 1], n = 0;
+        int upd = outdated(&tags, inst, ni, NULL);
+        snprintf(items[n].left, sizeof(items[n].left), "Update all apps");
+        if (upd) snprintf(items[n].right, sizeof(items[n].right), "%d available", upd);
+        else snprintf(items[n].right, sizeof(items[n].right), "up to date");
+        items[n].color = upd ? C_ACC : C_OK;
+        idx[n++] = -1;
         const esp_app_desc_t *d = esp_app_get_description();
         int osv[3];
         parse_version(d->version, osv);
@@ -333,6 +379,7 @@ void store_screen(void) {
         }
         sel = ui_menu("App Store", items, n, sel, "enter: install/update  `: back");
         if (sel < 0) return;
+        if (idx[sel] < 0) { update_all(&tags, inst, ni); continue; }
         tag_t *t = &tags.t[idx[sel]];
         if (strcmp(t->name, "os") == 0) {
             if (vcmp(osv, t->v) >= 0) { ui_message("OS update", "The OS is up to date."); continue; }
@@ -340,7 +387,7 @@ void store_screen(void) {
             snprintf(m, sizeof(m), "Update CardputerOS to v%d.%d.%d and restart?", t->v[0], t->v[1], t->v[2]);
             if (ui_confirm("OS update", m)) update_os(t->v);
         } else {
-            install_app(t->name, t->v);
+            install_app(t->name, t->v, 0);
         }
     }
 }

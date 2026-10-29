@@ -1,7 +1,7 @@
 {
   "name": "mp3-player",
   "displayName": "MP3 Player",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Reproductor de MP3 estilo iPod: navega por artistas, discos, temas y playlists, con tapas, barra de avance y playlists editables.",
   "perms": [
     "audio_out",

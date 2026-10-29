@@ -99,8 +99,8 @@ int cpos_read_icon(const char *path, uint8_t *out) {
     Elf32_Shdr_t sh;
     const char *err;
     int rc = -1;
-    if (read_ehdr(f, &eh, &err) == 0 && find_section(f, &eh, ".cpos_icon", &sh) == 0 && sh.sh_size == CPOS_ICON_BYTES &&
-        rd(f, sh.sh_offset, out, CPOS_ICON_BYTES) == 0)
+    if (read_ehdr(f, &eh, &err) == 0 && find_section(f, &eh, ".cpos_icon", &sh) == 0 && sh.sh_size >= 2 && sh.sh_size <= CPOS_ICON_MAX &&
+        rd(f, sh.sh_offset, out, sh.sh_size) == 0 && out[sh.sh_size - 1] == 0)
         rc = 0;
     fclose(f);
     return rc;

@@ -223,7 +223,7 @@ static void scan_apps(void) {
             strlcpy(a->name, h.name, sizeof(a->name));
             strlcpy(a->ver, h.version, sizeof(a->ver));
             a->ok = 1;
-            a->icon = malloc(CPOS_ICON_BYTES);
+            a->icon = malloc(CPOS_ICON_MAX);
             if (a->icon && cpos_read_icon(a->path, a->icon)) { free(a->icon); a->icon = NULL; }
         } else {
             strlcpy(a->name, e->d_name, sizeof(a->name));

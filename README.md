@@ -147,10 +147,10 @@ Everything the OS needs (name, version, permissions, ABI version) is embedded in
 ### Home screen and icons
 
 The launcher shows apps as a **carousel** or as a **grid of icons**; **Tab** switches between them (the
-choice is remembered), the arrow keys (`;` `.` `,` `/`) navigate and Enter opens. Each app carries its own
-48x48 icon inside the ELF (section `.cpos_icon`, 16 colors, ~1.2 KB): put `icon.bin` next to `app.json` and
-`build_app.py` embeds it. `python3 tools/gen_icons.py` (needs Pillow) draws the icons of the bundled apps
-in the OS style (dark tile, cyan line art); apps without an icon get a letter tile.
+choice is remembered), the arrow keys (`;` `.` `,` `/`) navigate and Enter opens. Each app carries its own icon inside the ELF (section `.cpos_icon`): a tiny vector drawing (~40 bytes) that the
+launcher draws at any size in the theme colors, so it stays crisp in the carousel and in the grid. Put `icon.bin`
+next to `app.json` and `build_app.py` embeds it; `python3 tools/gen_icons.py` (needs Pillow) generates the icons
+of the bundled apps from the glyph definitions in that script, apps without an icon get a letter tile.
 
 ### ABI and versions
 

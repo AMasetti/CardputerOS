@@ -1,7 +1,7 @@
 {
   "name": "led-rc",
   "displayName": "LED RC",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Control remoto infrarrojo para luces LED RGB genéricas: mandos de 24 y 44 teclas (NEC), con grilla de colores, brillo, efectos y atajos.",
   "perms": [
     "ir"

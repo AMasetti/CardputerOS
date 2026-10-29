@@ -1,233 +1,131 @@
 #!/usr/bin/env python3
-"""Generate the app icons: apps/<name>/icon.png (preview) and icon.bin (what build_app.py embeds).
+"""Generate the app icons: apps/<name>/icon.bin (embedded in the ELF) and icon.png (preview).
 
-    python3 tools/gen_icons.py            # needs Pillow
+    python3 tools/gen_icons.py            # needs Pillow for the previews
 
-Style: dark navy tile, cyan outline, cyan line-art glyph with a soft glow.
-icon.bin = 16 x RGB565 little endian palette + 48x48 pixels, 4 bits each (high nibble = left pixel).
-Palette index 0 is transparent (the rounded corners). Edit the glyph functions below and rerun.
+An icon is a tiny vector drawing, not a bitmap: the launcher draws it at any size with its own
+primitives, in the theme colors (glyph = foreground, cut-outs = tile background). Coordinates are 0..100
+over the icon box. icon.bin is a list of ops ending with a 0 byte; each op is `code | 0x80 if cut-out`
+followed by its parameters (one byte each):
+    1 RRECT x y w h r        2 CIRCLE x y r        3 ARC x y rin rout a0/2 a1/2 (degrees, 270 = up)
+    4 TRI x0 y0 x1 y1 x2 y2  5 LINE x0 y0 x1 y1 thickness (round caps)
 """
-import pathlib, struct, math
-from PIL import Image, ImageDraw, ImageFilter
+import math, pathlib
+from PIL import Image, ImageDraw
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-S, N = 192, 48          # drawing size (4x supersampled) and stored size
-CY = (64, 228, 255)     # cyan
-CYL = (205, 248, 255)   # highlight
-BG1, BG2 = (10, 30, 52), (5, 14, 30)
-SW = 9                  # stroke width at 192
-BAYER = [[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]]
+RRECT, CIRCLE, ARC, TRI, LINE = 1, 2, 3, 4, 5
 
 
-def tile():
-    img = Image.new("RGBA", (S, S))
-    d = ImageDraw.Draw(img)
-    for y in range(S):
-        t = y / (S - 1)
-        d.line([(0, y), (S, y)], fill=tuple(int(a + (b - a) * t) for a, b in zip(BG1, BG2)) + (255,))
-    mask = Image.new("L", (S, S), 0)
-    ImageDraw.Draw(mask).rounded_rectangle([0, 0, S - 1, S - 1], radius=40, fill=255)
-    img.putalpha(mask)
-    return img, mask
+def R(x, y, w, h, r=0, cut=False): return (RRECT, cut, x, y, w, h, r)
+def C(x, y, r, cut=False): return (CIRCLE, cut, x, y, r)
+def A(x, y, rin, rout, a0, a1, cut=False): return (ARC, cut, x, y, rin, rout, a0 // 2, a1 // 2)
+def T(x0, y0, x1, y1, x2, y2, cut=False): return (TRI, cut, x0, y0, x1, y1, x2, y2)
+def L(x0, y0, x1, y1, t, cut=False): return (LINE, cut, x0, y0, x1, y1, t)
 
 
-def rr(d, box, r, w=SW, fill=None):
-    d.rounded_rectangle(box, radius=r, outline=CY, width=w, fill=fill)
-
-
-def line(d, pts, w=SW):
-    if not isinstance(pts[0], (tuple, list)):
-        pts = list(zip(pts[0::2], pts[1::2]))
-    d.line(pts, fill=CY, width=w, joint="curve")
-    for p in (pts[0], pts[-1]):  # round caps
-        d.ellipse([p[0] - w / 2, p[1] - w / 2, p[0] + w / 2, p[1] + w / 2], fill=CY)
-
-
-def dot(d, x, y, r, fill=CY):
-    d.ellipse([x - r, y - r, x + r, y + r], fill=fill)
-
-
-def circ(d, x, y, r, w=SW):
-    d.ellipse([x - r, y - r, x + r, y + r], outline=CY, width=w)
-
-
-# ---- glyphs, line art on the 192x192 canvas -------------------------------------------------
-def g_robot(d):
-    rr(d, [44, 72, 148, 148], 22)
-    dot(d, 74, 108, 9); dot(d, 118, 108, 9)
-    line(d, [78, 132, 114, 132], 7)
-    line(d, [96, 72, 96, 44]); dot(d, 96, 38, 10)
-    line(d, [30, 98, 30, 124]); line(d, [162, 98, 162, 124])
-
-
-def g_sentinel(d):
-    d.ellipse([30, 62, 162, 130], outline=CY, width=SW)
-    circ(d, 96, 96, 19)
-    dot(d, 96, 96, 7, CYL)
-    for r in (62, 80):
-        d.arc([96 - r, 96 - r, 96 + r, 96 + r], 252, 288, fill=CY, width=7)
-        d.arc([96 - r, 96 - r, 96 + r, 96 + r], 72, 108, fill=CY, width=7)
-
-
-def g_music(d):
-    circ(d, 66, 130, 20); circ(d, 126, 116, 20)
-    line(d, [86, 128, 86, 52]); line(d, [146, 114, 146, 38])
-    line(d, [86, 52, 146, 38])
-
-
-def g_car(d):
-    d.line([(34, 116), (46, 92), (74, 70), (128, 70), (152, 96), (160, 116), (34, 116)], fill=CY, width=SW, joint="curve")
-    line(d, [92, 76, 92, 98]); line(d, [92, 98, 140, 98], 7)
-    for x in (68, 126):
-        circ(d, x, 128, 20)
-
-
-def g_bulb(d):
-    d.arc([56, 40, 136, 120], 130, 50, fill=CY, width=SW)
-    line(d, [72, 108, 77, 128]); line(d, [120, 108, 115, 128])
-    line(d, [77, 128, 115, 128]); line(d, [81, 145, 111, 145]); line(d, [89, 160, 103, 160])
-    for a in (-62, -31, 0, 31, 62):
-        x1, y1 = 96 + 68 * math.sin(math.radians(a)), 80 - 68 * math.cos(math.radians(a))
-        x2, y2 = 96 + 82 * math.sin(math.radians(a)), 80 - 82 * math.cos(math.radians(a))
-        line(d, [x1, y1, x2, y2], 7)
-
-
-def g_ledremote(d):
-    rr(d, [58, 22, 134, 170], 24)
-    dot(d, 96, 56, 11)
-    for j in range(3):
-        for i in range(3):
-            circ(d, 78 + i * 18, 94 + j * 24, 6, 5)
-
-
-def g_tv(d):
-    rr(d, [26, 56, 166, 148], 16)
-    d.arc([76, 78, 116, 118], -55, 235, fill=CY, width=8)
-    line(d, [96, 76, 96, 98], 8)
-    line(d, [72, 56, 52, 32], 7); line(d, [120, 56, 140, 32], 7)
-
-
-def g_tuner(d):
-    d.arc([26, 50, 166, 190], 215, 325, fill=CY, width=SW)
-    line(d, [96, 122, 126, 84]); dot(d, 96, 122, 11)
-    for a in (-35, 0, 35):
-        x1, y1 = 96 + 62 * math.sin(math.radians(a)), 122 - 62 * math.cos(math.radians(a))
-        x2, y2 = 96 + 76 * math.sin(math.radians(a)), 122 - 76 * math.cos(math.radians(a))
-        line(d, [x1, y1, x2, y2], 6)
-    pts = [(30 + i * 8.2, 160 + 12 * math.sin(i * 0.95)) for i in range(18)]
-    line(d, pts, 7)
-
-
-def g_compass(d):
-    circ(d, 96, 96, 66)
-    d.polygon([(96, 44), (114, 96), (96, 92), (78, 96)], outline=CY, fill=CY)
-    d.polygon([(96, 148), (114, 96), (96, 100), (78, 96)], outline=CY, width=7)
-    dot(d, 96, 96, 6, BG2)
-
-
-def g_karting(d):
-    line(d, [48, 30, 48, 164])
-    for r in range(3):
-        for c in range(4):
-            x, y = 62 + c * 25, 34 + r * 25
-            d.rectangle([x, y, x + 25, y + 25], outline=CY, width=5, fill=CY if (r + c) % 2 == 0 else None)
-
-
-def g_snake(d):
-    line(d, [34, 142, 34, 106, 90, 106, 90, 64, 134, 64], 14)
-    circ(d, 142, 64, 18, 8)
-    dot(d, 148, 58, 4)
-    d.rectangle([122, 136, 148, 162], outline=CY, width=7)
-
-
-def g_tetrix(d):
-    def blk(cx, cy, fill=False):
-        x, y = 30 + cx * 28, 30 + cy * 28
-        d.rounded_rectangle([x, y, x + 24, y + 24], radius=5, outline=CY, width=6, fill=CY if fill else None)
-    for cx, cy in [(1, 2), (0, 3), (1, 3), (2, 3)]:
-        blk(cx, cy)
-    for cx, cy in [(3, 2), (4, 2), (3, 3), (4, 3)]:
-        blk(cx, cy, True)
-    for cy in range(0, 2):
-        blk(3, cy)
-
-
-def g_badge(d):
-    rr(d, [40, 24, 152, 170], 18)
-    circ(d, 96, 52, 9, 6)
-    for r in range(4):
-        for c in range(4):
-            if (r + 2 * c + r * c) % 3 != 1:
-                d.rectangle([58 + c * 20, 86 + r * 20, 58 + c * 20 + 13, 86 + r * 20 + 13], fill=CY)
-
-
-APPS = {
-    "robot-control": g_robot, "ble-sentinel": g_sentinel, "mp3-player": g_music, "shell-rc": g_car,
-    "wiz-rc": g_bulb, "led-rc": g_ledremote, "tv-b-gone": g_tv, "tuner": g_tuner, "compass": g_compass,
-    "karting": g_karting, "snake": g_snake, "tetrix": g_tetrix, "ekoparty-badge": g_badge,
+GLYPHS = {
+    "robot-control": [  # droid head
+        R(24, 38, 52, 38, 12), R(17, 49, 7, 16, 3), R(76, 49, 7, 16, 3),
+        L(50, 38, 50, 26, 4), C(50, 23, 5),
+        C(39, 54, 5, True), C(61, 54, 5, True), R(42, 64, 16, 3, 1, True)],
+    "ble-sentinel": [  # radar
+        A(50, 50, 28, 33, 0, 360), A(50, 50, 12, 15, 0, 360), L(50, 50, 73, 27, 3), C(66, 64, 4)],
+    "mp3-player": [  # beamed notes
+        C(38, 68, 9), C(66, 62, 9), R(44, 30, 5, 38), R(72, 24, 5, 38), L(46, 31, 74, 25, 7)],
+    "shell-rc": [  # car
+        R(20, 52, 60, 20, 7), R(32, 38, 36, 18, 7), R(37, 42, 12, 9, 2, True), R(52, 42, 12, 9, 2, True),
+        C(35, 74, 10), C(35, 74, 4, True), C(65, 74, 10), C(65, 74, 4, True)],
+    "wiz-rc": [  # bulb
+        C(50, 42, 18), R(42, 52, 16, 18, 4), R(42, 72, 16, 5, 2), L(44, 63, 56, 63, 2, True),
+        L(50, 14, 50, 21, 3), L(26, 22, 31, 27, 3), L(74, 22, 69, 27, 3), L(17, 42, 24, 42, 3), L(83, 42, 76, 42, 3)],
+    "led-rc": [  # remote
+        R(35, 17, 30, 66, 9), C(50, 31, 6, True),
+        C(42, 48, 3, True), C(50, 48, 3, True), C(58, 48, 3, True),
+        C(42, 58, 3, True), C(50, 58, 3, True), C(58, 58, 3, True),
+        C(42, 68, 3, True), C(50, 68, 3, True), C(58, 68, 3, True)],
+    "tv-b-gone": [  # TV with the power symbol
+        R(19, 38, 62, 42, 8), R(25, 44, 50, 30, 4, True),
+        A(50, 59, 6, 9, 0, 360), R(47, 49, 6, 8, 0, True), R(49, 50, 3, 10, 1),
+        L(38, 36, 29, 25, 3), L(62, 36, 71, 25, 3), R(35, 82, 30, 3, 1)],
+    "tuner": [  # gauge
+        A(50, 66, 27, 32, 200, 340), L(50, 66, 63, 42, 4), C(50, 66, 6),
+        L(26, 48, 31, 52, 3), L(50, 33, 50, 39, 3), L(74, 48, 69, 52, 3), R(30, 78, 40, 4, 2)],
+    "compass": [  # needle in a ring
+        A(50, 50, 29, 34, 0, 360), T(50, 24, 59, 50, 41, 50), T(50, 76, 59, 50, 41, 50), C(50, 50, 4, True)],
+    "karting": [  # checkered flag
+        R(25, 18, 5, 66, 2),
+        R(32, 20, 12, 10, 1), R(56, 20, 12, 10, 1), R(44, 30, 12, 10, 1), R(68, 30, 12, 10, 1),
+        R(32, 40, 12, 10, 1), R(56, 40, 12, 10, 1)],
+    "snake": [  # snake and its food
+        L(27, 72, 27, 52, 9), L(27, 52, 50, 52, 9), L(50, 52, 50, 32, 9), L(50, 32, 70, 32, 9),
+        C(74, 32, 9), C(77, 29, 2, True), R(64, 66, 11, 11, 3)],
+    "tetrix": [  # T piece, I piece
+        R(12, 62, 16, 16, 3), R(31, 62, 16, 16, 3), R(50, 62, 16, 16, 3), R(31, 43, 16, 16, 3),
+        R(69, 24, 16, 16, 3), R(69, 43, 16, 16, 3), R(69, 62, 16, 16, 3)],
+    "ekoparty-badge": [  # conference badge
+        R(30, 17, 40, 64, 8), R(43, 22, 14, 4, 2, True),
+        R(37, 38, 10, 10, 1, True), R(53, 38, 10, 10, 1, True), R(37, 54, 10, 10, 1, True),
+        R(53, 59, 10, 5, 1, True), R(40, 69, 20, 3, 1, True)],
 }
 
 
-def palette():
-    bg = [tuple(int(a + (b - a) * i / 2) for a, b in zip(BG1, BG2)) for i in range(3)]
-    glow = [tuple(int(b + (c - b) * f) for b, c in zip(BG1, CY)) for f in (0.18, 0.35, 0.55)]
-    return bg + glow + [(30, 130, 160), CY, CYL]   # 0-5 dithered background, then the line colors
-
-
-def render(glyph):
-    base, mask = tile()
-    layer = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-    d = ImageDraw.Draw(layer)
-    glyph(d)
-    # tile border
-    d.rounded_rectangle([3, 3, S - 4, S - 4], radius=38, outline=(30, 130, 160, 255), width=6)
-    glow = layer.getchannel("A").filter(ImageFilter.GaussianBlur(9)).point(lambda a: int(a * 0.55))
-    g = Image.new("RGBA", (S, S), CY + (0,))
-    g.putalpha(glow)
-    base.alpha_composite(g)
-    base.alpha_composite(layer)
-    base.putalpha(mask)
-    return base
-
-
-def encode(img):
-    small = img.resize((N, N), Image.BOX)
-    alpha, rgb = small.getchannel("A"), small.convert("RGB")
-    pal = palette()
-    near = lambda q: min(range(len(pal)), key=lambda i: sum((u - v) ** 2 for u, v in zip(pal[i], q)))
-    idx = []
-    for y in range(N):
-        for x in range(N):
-            if alpha.getpixel((x, y)) < 128:
-                idx.append(0)
-                continue
-            px = rgb.getpixel((x, y))
-            k = near(px)
-            if k < 6:  # background and glow: ordered dither gives a smooth falloff with few colors
-                dth = (BAYER[y % 4][x % 4] - 7.5) * 0.9
-                k = near(tuple(max(0, min(255, int(v + dth))) for v in px))
-            idx.append(1 + k)
+def encode(ops):
     out = bytearray()
-    for i in range(16):
-        r, g, b = (0, 0, 0) if i == 0 or i > len(pal) else pal[i - 1]
-        out += struct.pack("<H", ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3))
-    for i in range(0, len(idx), 2):
-        out.append((idx[i] << 4) | idx[i + 1])
-    prev = Image.new("RGBA", (N, N), (0, 0, 0, 0))   # what the device will draw
-    for p, v in enumerate(idx):
-        if v:
-            prev.putpixel((p % N, p // N), pal[v - 1] + (255,))
-    return bytes(out), prev
+    for op in ops:
+        out.append(op[0] | (0x80 if op[1] else 0))
+        out += bytes(op[2:])
+    out.append(0)
+    return bytes(out)
+
+
+def preview(ops, size=192):
+    k = 4
+    s = size * k
+    bg, fg = (10, 30, 52), (64, 228, 255)
+    img = Image.new("RGBA", (s, s), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    d.rounded_rectangle([0, 0, s - 1, s - 1], radius=s // 5, fill=bg)
+    d.rounded_rectangle([0, 0, s - 1, s - 1], radius=s // 5, outline=fg, width=k * 2)
+    gs, gx = s * 0.96, s * 0.02     # the glyph box sits inside the tile like the built-in icons
+    P = lambda v: gx + v * gs / 100
+    Z = lambda v: v * gs / 100
+    for op in ops:
+        code, cut, a = op[0], op[1], op[2:]
+        col = bg if cut else fg
+        if code == RRECT:
+            d.rounded_rectangle([P(a[0]), P(a[1]), P(a[0] + a[2]), P(a[1] + a[3])], radius=Z(a[4]), fill=col)
+        elif code == CIRCLE:
+            d.ellipse([P(a[0]) - Z(a[2]), P(a[1]) - Z(a[2]), P(a[0]) + Z(a[2]), P(a[1]) + Z(a[2])], fill=col)
+        elif code == ARC:
+            x, y, ri, ro, a0, a1 = P(a[0]), P(a[1]), Z(a[2]), Z(a[3]), a[4] * 2, a[5] * 2
+            if a1 - a0 >= 360:
+                d.ellipse([x - ro, y - ro, x + ro, y + ro], fill=col)
+                d.ellipse([x - ri, y - ri, x + ri, y + ri], fill=bg)
+            else:
+                m = Image.new("L", (s, s), 0)
+                md = ImageDraw.Draw(m)
+                md.pieslice([x - ro, y - ro, x + ro, y + ro], a0, a1, fill=255)
+                md.ellipse([x - ri, y - ri, x + ri, y + ri], fill=0)
+                img.paste(Image.new("RGBA", (s, s), col), (0, 0), m)
+        elif code == TRI:
+            d.polygon([(P(a[0]), P(a[1])), (P(a[2]), P(a[3])), (P(a[4]), P(a[5]))], fill=col)
+        elif code == LINE:
+            t = max(Z(a[4]), 2)
+            d.line([(P(a[0]), P(a[1])), (P(a[2]), P(a[3]))], fill=col, width=int(t))
+            for px, py in ((a[0], a[1]), (a[2], a[3])):
+                d.ellipse([P(px) - t / 2, P(py) - t / 2, P(px) + t / 2, P(py) + t / 2], fill=col)
+    return img.resize((size, size), Image.LANCZOS)
 
 
 def main():
-    for name, glyph in APPS.items():
+    for name, ops in GLYPHS.items():
         d = ROOT / "apps" / name
         if not d.is_dir():
             continue
-        data, prev = encode(render(glyph))
+        data = encode(ops)
         (d / "icon.bin").write_bytes(data)
-        prev.resize((192, 192), Image.NEAREST).save(d / "icon.png")
+        preview(ops).save(d / "icon.png")
         print(name, len(data))
 
 

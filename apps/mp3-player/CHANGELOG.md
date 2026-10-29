@@ -1,5 +1,8 @@
 # Changelog — MP3 Player
 
+## 0.2.3
+- New vector launcher icon (CardputerOS 0.6.0 and later; 0.5.0 icons were bitmaps).
+
 ## 0.2.2
 - Launcher icon (shown by CardputerOS 0.5.0 and later).
 

@@ -5,6 +5,7 @@
 #include "hal.h"
 #include "esp_timer.h"
 #include <string.h>
+#include <math.h>
 #include <time.h>
 #include "nvs.h"
 #include "loader.h"
@@ -64,25 +65,56 @@ static void icon_system(int x, int y, int s, uint16_t c, uint16_t bg) {
     G.circle(ui_cv, x, y, r / 2, bg, 1);
 }
 
-/* the app's own icon, scaled (nearest) to size x size; palette index 0 is transparent */
-static void draw_icon(const uint8_t *ic, int cx, int cy, int size, int dim) {
-    uint16_t pal[16];
-    for (int i = 0; i < 16; i++) {
-        uint16_t c = ic[i * 2] | (ic[i * 2 + 1] << 8);
-        if (dim) c = (((c >> 11) * 5 / 8) << 11) | ((((c >> 5) & 63) * 5 / 8) << 5) | ((c & 31) * 5 / 8); /* not focused: darker */
-        pal[i] = c;
-    }
-    const uint8_t *px = ic + 32;
+/* The app's icon: a short vector drawing (see tools/gen_icons.py) in 0..100 box units, drawn in the
+ * theme colors: fg for shapes, bg for cut-outs. It scales to any tile size. */
+static void draw_vicon(const uint8_t *p, int cx, int cy, int size, uint16_t fg, uint16_t bg) {
     int x0 = cx - size / 2, y0 = cy - size / 2;
-    for (int y = 0; y < size; y++) {
-        int sy = y * CPOS_ICON_SIZE / size;
-        for (int x = 0; x < size; x++) {
-            int sx = x * CPOS_ICON_SIZE / size;
-            uint8_t b = px[(sy * CPOS_ICON_SIZE + sx) / 2];
-            int v = (sx & 1) ? (b & 15) : (b >> 4);
-            if (v) gfx_put_pixel(ui_cv, x0 + x, y0 + y, pal[v]);
+#define PX(v) (x0 + (v) * size / 100)
+#define PY(v) (y0 + (v) * size / 100)
+#define PZ(v) ((v) * size / 100)
+    while (*p) {
+        int op = *p & 0x7F;
+        uint16_t c = (*p & 0x80) ? bg : fg;
+        p++;
+        switch (op) {
+            case 1: /* RRECT x y w h r */
+                gfx_round_rect(ui_cv, PX(p[0]), PY(p[1]), PX(p[0] + p[2]) - PX(p[0]), PY(p[1] + p[3]) - PY(p[1]), PZ(p[4]), c, 1);
+                p += 5;
+                break;
+            case 2: /* CIRCLE x y r */
+                G.circle(ui_cv, PX(p[0]), PY(p[1]), PZ(p[2]) < 1 ? 1 : PZ(p[2]), c, 1);
+                p += 3;
+                break;
+            case 3: /* ARC x y rin rout a0/2 a1/2 */
+                G.arc(ui_cv, PX(p[0]), PY(p[1]), PZ(p[2]), PZ(p[3]), p[4] * 2, p[5] * 2, c, 1);
+                p += 6;
+                break;
+            case 4: /* TRI */
+                G.triangle(ui_cv, PX(p[0]), PY(p[1]), PX(p[2]), PY(p[3]), PX(p[4]), PY(p[5]), c, 1);
+                p += 6;
+                break;
+            case 5: { /* LINE x0 y0 x1 y1 thickness: a quad plus round caps */
+                float ax = PX(p[0]), ay = PY(p[1]), bx = PX(p[2]), by = PY(p[3]);
+                float h = PZ(p[4]) / 2.0f;
+                if (h < 0.8f) h = 0.8f;
+                float dx = bx - ax, dy = by - ay, l = sqrtf(dx * dx + dy * dy);
+                if (l > 0.1f) {
+                    float nx = -dy / l * h, ny = dx / l * h;
+                    G.triangle(ui_cv, ax + nx, ay + ny, bx + nx, by + ny, bx - nx, by - ny, c, 1);
+                    G.triangle(ui_cv, ax + nx, ay + ny, bx - nx, by - ny, ax - nx, ay - ny, c, 1);
+                }
+                int r = (int)(h + 0.5f);
+                G.circle(ui_cv, (int)ax, (int)ay, r, c, 1);
+                G.circle(ui_cv, (int)bx, (int)by, r, c, 1);
+                p += 5;
+                break;
+            }
+            default: return;
         }
     }
+#undef PX
+#undef PY
+#undef PZ
 }
 
 static void draw_tile(const launcher_item_t *it, int x, int y, int size, int focused) {
@@ -90,13 +122,10 @@ static void draw_tile(const launcher_item_t *it, int x, int y, int size, int foc
     uint16_t bg = focused ? C_TILE : C_TILE_DIM;
     uint16_t fg = focused ? C_ACC : C_EDGE;
     if (focused) gfx_round_rect(ui_cv, x - size / 2 - 3, y - size / 2 - 3, size + 6, size + 6, r + 3, C_ACC, 1);
-    if (it->icon) { /* the icon is the whole tile; dim it when not focused */
-        draw_icon(it->icon, x, y, size, !focused);
-        return;
-    }
     gfx_round_rect(ui_cv, x - size / 2, y - size / 2, size, size, r, bg, 1);
     gfx_round_rect(ui_cv, x - size / 2, y - size / 2, size, size, r, focused ? C_ACC : C_EDGE, 0);
     gfx_round_rect(ui_cv, x - size / 2 + 1, y - size / 2 + 1, size - 2, size - 2, r - 1, focused ? C_ACC : C_EDGE, 0);
+    if (it->icon) { draw_vicon(it->icon, x, y, size * 96 / 100, fg, bg); return; }
     switch (it->kind) {
         case LI_WIFI: icon_wifi(x, y, size, fg, bg); break;
         case LI_STORE: icon_store(x, y, size, fg, bg); break;
@@ -216,7 +245,7 @@ static void draw_carousel(const launcher_item_t *items, int n, int sel, float an
 #define GH 55
 #define GX0 34
 #define GY0 22
-#define GICON 36
+#define GICON 34
 
 static void draw_grid(const launcher_item_t *items, int n, int sel, int top, const cpos_kbd_t *k) {
     gfx_fill(ui_cv, C_BG);
@@ -236,6 +265,7 @@ static void draw_grid(const launcher_item_t *items, int n, int sel, int top, con
             }
             draw_tile(&items[i], cx, cy, GICON, on);
             /* name, cut to the cell */
+            gfx_set_font(ui_cv, CPOS_FONT_JP12);
             char nm[24];
             strlcpy(nm, items[i].name, sizeof(nm));
             int len = strlen(nm);
