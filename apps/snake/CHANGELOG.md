@@ -1,5 +1,8 @@
 # Changelog — Snake
 
+## 0.1.1
+- Launcher icon (shown by CardputerOS 0.5.0 and later).
+
 ## [0.1.0]
 - Tablero de 40×20 con HUD de puntos y récord.
 - Flechas del teclado (`;` `.` `,` `/`) o WASD, con buffer de giros.

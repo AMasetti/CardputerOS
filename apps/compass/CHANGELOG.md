@@ -1,5 +1,8 @@
 # Changelog — Brújula
 
+## 0.1.1
+- Launcher icon (shown by CardputerOS 0.5.0 and later).
+
 ## [0.1.0]
 - Fusión de acelerómetro y giróscopo (filtro de Mahony) para la orientación en 3D.
 - Vista 3D: el Cardputer dibujado sobre una rosa de los vientos, con cámara detrás que sigue el rumbo.

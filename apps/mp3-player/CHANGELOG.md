@@ -1,5 +1,8 @@
 # Changelog — MP3 Player
 
+## 0.2.2
+- Launcher icon (shown by CardputerOS 0.5.0 and later).
+
 ## [0.2.1]
 - Versión para CardputerOS 0.3.0: el decodificador MP3 y las tapas JPEG corren en el
   sistema, y la app se puede cargar en partes cuando la memoria está fragmentada.

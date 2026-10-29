@@ -1,7 +1,7 @@
 {
   "name": "snake",
   "displayName": "Snake",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Snake clásico: flechas del teclado (; . , /) o WASD, velocidad creciente, récord guardado en la flash y sonido.",
   "perms": [
     "audio_out"

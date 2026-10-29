@@ -1,5 +1,8 @@
 # Changelog — Tetrix
 
+## 0.1.1
+- Launcher icon (shown by CardputerOS 0.5.0 and later).
+
 ## [0.1.0]
 - Tablero de 10×20 acostado: las piezas entran por la izquierda y caen hacia la derecha.
 - `;` `.` mover, `,` rotar (`z` al revés), `/` bajar rápido, `space`/`enter` soltar de golpe, autorepetición al mantener.

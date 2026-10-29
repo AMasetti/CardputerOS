@@ -1,5 +1,8 @@
 # Changelog — Afinador
 
+## 0.1.1
+- Launcher icon (shown by CardputerOS 0.5.0 and later).
+
 ## [0.1.0]
 - Detección de altura con YIN sobre el micrófono interno a 16 kHz (de ~38 Hz a ~1400 Hz).
 - Nota en grande con octava, medidor de cents con aguja, frecuencia en Hz y pistas "subí"/"bajá".

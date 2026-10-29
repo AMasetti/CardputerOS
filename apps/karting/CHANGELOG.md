@@ -1,5 +1,8 @@
 # Changelog — Karting
 
+## 0.1.1
+- Launcher icon (shown by CardputerOS 0.5.0 and later).
+
 ## [0.1.0]
 - Estimación del recorrido solo con el IMU (sin GPS): filtro de actitud, rumbo por el giróscopo y velocidad por el acelerómetro, corregida con a_normal = v·ω en las curvas y con velocidad cero al estar quieto.
 - Calibración con G0 sentado y quieto (gravedad y sesgo del giróscopo), válida con el aparato en cualquier orientación en el bolsillo.

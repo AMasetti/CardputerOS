@@ -1,7 +1,7 @@
 {
   "name": "compass",
   "displayName": "Brújula",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Brújula con el acelerómetro y el giróscopo: vista 3D con el Cardputer sobre una rosa de los vientos y vista 2D clásica con nivel de burbuja. El norte se fija a mano (no tiene magnetómetro).",
   "perms": [
     "imu"

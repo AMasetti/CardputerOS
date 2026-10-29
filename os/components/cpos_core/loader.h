@@ -21,6 +21,11 @@ typedef struct {
 
 /* Read only the manifest (name, version, abi, permissions) without loading anything. */
 int cpos_read_header(const char *path, cpos_app_header_t *out, const char **err);
+/* Launcher icon from the .cpos_icon section: 16 RGB565 palette entries (index 0 transparent) then
+ * 48x48 pixels at 4 bits each (high nibble = left pixel). 0 when the app has one. */
+#define CPOS_ICON_SIZE 48
+#define CPOS_ICON_BYTES (32 + CPOS_ICON_SIZE * CPOS_ICON_SIZE / 2)
+int cpos_read_icon(const char *path, uint8_t *out);
 /* Load and relocate an app into RAM. err is set to a static string on failure. */
 int cpos_load(const char *path, cpos_image_t *img, const char **err);
 void cpos_unload(cpos_image_t *img);

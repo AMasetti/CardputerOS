@@ -151,6 +151,7 @@ void hal_kbd_inject(char c) {
     int row = -1, col = -1;
     if (c == '\n') { row = 2; col = 13; }
     else if (c == 8) { row = 0; col = 13; }
+    else if (c == '\t') { row = 1; col = 0; }
     else for (int r = 0; r < 4 && row < 0; r++)
         for (int q = 0; q < 14; q++)
             if (KEYMAP[r][q].a == c) { row = r; col = q; break; }

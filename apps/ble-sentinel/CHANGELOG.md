@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.11.1
+- Launcher icon (shown by CardputerOS 0.5.0 and later).
+
 ## [0.11.0]
 - Nuevo: detección real de drones (`Category::DroneRemoteId`) -- hasta
   ahora la categoría existía pero nada la poblaba. Se matchea por

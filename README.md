@@ -37,10 +37,10 @@ installed, updated and launched from the device itself, with no re-flashing and 
   (tag `os-vX.Y.Z`, asset `os-vX.Y.Z.bin`).
 
 <p align="center">
-  <img src="docs/assets/screens/launcher.png" width="24%" alt="Launcher">
+  <img src="docs/assets/screens/launcher.png" width="24%" alt="Launcher carousel">
+  <img src="docs/assets/screens/grid.png" width="24%" alt="Launcher grid">
   <img src="docs/assets/screens/robot-control.png" width="24%" alt="Robot Control">
   <img src="docs/assets/screens/snake.png" width="24%" alt="Snake">
-  <img src="docs/assets/screens/tetrix.png" width="24%" alt="Tetrix">
 </p>
 <p align="center"><sub>Screenshots from the QEMU emulator build.</sub></p>
 
@@ -143,6 +143,14 @@ Copy the `.elf` to `/apps/` on the SD card, or publish a release and install it 
 `imu`, `ir`, `gpio`). The OS shows them before installing and blocks everything else.
 `src/main.cpp` is ordinary Arduino-style code (`setup()` / `loop()`) using `M5Cardputer.h`.
 Everything the OS needs (name, version, permissions, ABI version) is embedded in the ELF by the build tool.
+
+### Home screen and icons
+
+The launcher shows apps as a **carousel** or as a **grid of icons**; **Tab** switches between them (the
+choice is remembered), the arrow keys (`;` `.` `,` `/`) navigate and Enter opens. Each app carries its own
+48x48 icon inside the ELF (section `.cpos_icon`, 16 colors, ~1.2 KB): put `icon.bin` next to `app.json` and
+`build_app.py` embeds it. `python3 tools/gen_icons.py` (needs Pillow) draws the icons of the bundled apps
+in the OS style (dark tile, cyan line art); apps without an icon get a letter tile.
 
 ### ABI and versions
 

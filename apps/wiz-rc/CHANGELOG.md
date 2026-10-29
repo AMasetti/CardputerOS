@@ -1,5 +1,8 @@
 # Changelog — WiZ RC
 
+## 0.1.1
+- Launcher icon (shown by CardputerOS 0.5.0 and later).
+
 ## [0.1.0]
 - Control de luces WiZ por UDP (puerto 38899), sin nube ni app: solo hace falta estar en la misma red WiFi.
 - Elige la red WiFi, escribe la clave con el teclado y la recuerda.

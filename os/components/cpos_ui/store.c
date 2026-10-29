@@ -22,10 +22,10 @@
 
 #define DEFAULT_REPO "AMasetti/CardputerOS"
 #define APPS_DIR "/sdcard/apps"
-#define C_ACC gfx_rgb(255, 120, 0)
+#define C_ACC gfx_rgb(64, 228, 255)
 #define C_OK gfx_rgb(80, 220, 120)
 #define C_ERR gfx_rgb(255, 90, 90)
-#define C_DIM gfx_rgb(130, 135, 150)
+#define C_DIM gfx_rgb(80, 130, 150)
 
 static const char *TAG = "store";
 static char s_repo[48];

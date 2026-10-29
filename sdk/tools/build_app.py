@@ -213,6 +213,9 @@ __attribute__((section(".cpos_app"), used)) const cpos_app_header_t cpos_app_hea
     splits = code_splits(elf, build / (name + ".map"), find_tool("xtensa-esp32s3-elf-readelf"))
     (build / "splits.bin").write_bytes(b"".join(x.to_bytes(4, "little") for x in splits))
     run([find_tool("xtensa-esp32s3-elf-objcopy"), "--add-section", f".cpos_splits={build / 'splits.bin'}", elf])
+    # launcher icon (tools/gen_icons.py): read by the OS from the file, never loaded with the app
+    if (appdir / "icon.bin").exists():
+        run([find_tool("xtensa-esp32s3-elf-objcopy"), "--add-section", f".cpos_icon={appdir / 'icon.bin'}", elf])
     out = pathlib.Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     final = out / f"{name}-v{version}.elf"

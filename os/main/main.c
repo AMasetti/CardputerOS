@@ -8,6 +8,7 @@
 #include "nvs_flash.h"
 #include "ui.h"
 #include <dirent.h>
+#include <sys/stat.h>
 #include <string.h>
 #include "sdkconfig.h"
 
@@ -92,7 +93,9 @@ static void selftest(void) {
     xTaskCreate(script_task, "script", 4096, NULL, 2, NULL);
     xTaskCreate(watch_task, "watch", 4096, NULL, 2, NULL);
     xTaskCreate(frame_task, "frames", 4096, NULL, 2, NULL);
-    DIR *d = opendir("/sdcard/apps");
+    struct stat st;
+    bool launcher_only = stat("/sdcard/launcher_only", &st) == 0; /* marker file: skip running the apps */
+    DIR *d = launcher_only ? NULL : opendir("/sdcard/apps");
     struct dirent *e;
     int ok = 0, bad = 0;
     while (d && (e = readdir(d))) {
@@ -121,6 +124,15 @@ static void selftest(void) {
     xTaskCreate(ui_task, "ui", 8192, NULL, 4, NULL);
     vTaskDelay(pdMS_TO_TICKS(2500));
     hal_display_dump("ui-launcher");
+    hal_kbd_inject('\t');               /* grid view */
+    vTaskDelay(pdMS_TO_TICKS(800));
+    hal_display_dump("ui-grid");
+    hal_kbd_inject('/');
+    hal_kbd_inject('.');
+    hal_kbd_inject('.');
+    vTaskDelay(pdMS_TO_TICKS(800));
+    hal_display_dump("ui-grid2");
+    hal_kbd_inject('\t');               /* and back to the carousel */
     hal_kbd_inject(';');                 /* wraps to the last entry: System */
     hal_kbd_inject('\n');
     vTaskDelay(pdMS_TO_TICKS(1500));

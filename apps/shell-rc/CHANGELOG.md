@@ -1,5 +1,8 @@
 # Changelog — Shell RC
 
+## 0.1.1
+- Launcher icon (shown by CardputerOS 0.5.0 and later).
+
 ## [0.1.0]
 - Elegís la generación (2024 `QCAR-*` o 2025 `SL-*`) y busca los autos por BLE, ordenados por señal.
 - 2024: comandos de 16 bytes cifrados con AES-128 ECB y 4 velocidades (`1`-`4`).

@@ -5,10 +5,10 @@
 #include "freertos/task.h"
 #include <string.h>
 
-#define C_BG gfx_rgb(12, 14, 22)
-#define C_ACC gfx_rgb(255, 120, 0)
+#define C_BG gfx_rgb(4, 10, 20)
+#define C_ACC gfx_rgb(64, 228, 255)
 #define C_TXT 0xFFFF
-#define C_DIM gfx_rgb(130, 135, 150)
+#define C_DIM gfx_rgb(80, 130, 150)
 
 /* Key press events with auto-repeat, built from the keyboard snapshot. */
 int ui_key(int timeout_ms) {

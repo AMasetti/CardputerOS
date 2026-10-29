@@ -5,6 +5,7 @@
 #include "esp_system.h"
 #include "esp_log.h"
 #include "hal.h"
+#include "loader.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <dirent.h>
@@ -12,14 +13,14 @@
 #include <string.h>
 #include <sys/stat.h>
 
-#define C_BG gfx_rgb(12, 14, 22)
-#define C_HDR gfx_rgb(24, 28, 44)
-#define C_ACC gfx_rgb(255, 120, 0)
+#define C_BG gfx_rgb(4, 10, 20)
+#define C_HDR gfx_rgb(8, 24, 42)
+#define C_ACC gfx_rgb(64, 228, 255)
 #define C_TXT 0xFFFF
-#define C_DIM gfx_rgb(130, 135, 150)
+#define C_DIM gfx_rgb(80, 130, 150)
 #define C_OK gfx_rgb(80, 220, 120)
 #define C_ERR gfx_rgb(255, 90, 90)
-#define C_SEL gfx_rgb(40, 48, 78)
+#define C_SEL gfx_rgb(10, 40, 66)
 
 static const char *TAG = "ui";
 cpos_canvas_t *ui_cv;
@@ -197,13 +198,14 @@ static void wifi_screen(void) {
 }
 
 /* ---- apps ----------------------------------------------------------------------------- */
-typedef struct { char path[96]; char name[24]; char ver[12]; int ok; } app_entry_t;
+typedef struct { char path[96]; char name[24]; char ver[12]; int ok; uint8_t *icon; } app_entry_t;
 static app_entry_t s_apps[40];
 static int s_napps;
 
 static int cmp_app(const void *a, const void *b) { return strcasecmp(((const app_entry_t *)a)->name, ((const app_entry_t *)b)->name); }
 
 static void scan_apps(void) {
+    for (int i = 0; i < s_napps; i++) { free(s_apps[i].icon); s_apps[i].icon = NULL; }
     s_napps = 0;
     mkdir("/sdcard/apps", 0777);
     DIR *d = opendir("/sdcard/apps");
@@ -213,6 +215,7 @@ static void scan_apps(void) {
         size_t l = strlen(e->d_name);
         if (l < 5 || strcasecmp(e->d_name + l - 4, ".elf") != 0 || e->d_name[0] == '.') continue;
         app_entry_t *a = &s_apps[s_napps];
+        a->icon = NULL;
         snprintf(a->path, sizeof(a->path), "/sdcard/apps/%.80s", e->d_name);
         cpos_app_header_t h;
         const char *err = NULL;
@@ -220,6 +223,8 @@ static void scan_apps(void) {
             strlcpy(a->name, h.name, sizeof(a->name));
             strlcpy(a->ver, h.version, sizeof(a->ver));
             a->ok = 1;
+            a->icon = malloc(CPOS_ICON_BYTES);
+            if (a->icon && cpos_read_icon(a->path, a->icon)) { free(a->icon); a->icon = NULL; }
         } else {
             strlcpy(a->name, e->d_name, sizeof(a->name));
             a->ver[0] = 0;
@@ -357,6 +362,7 @@ void cpos_ui_run(void) {
             snprintf(items[n].name, sizeof(items[n].name), "%s", s_apps[i].name);
             snprintf(items[n].sub, sizeof(items[n].sub), "%s%s", s_apps[i].ok ? "v" : "", s_apps[i].ok ? s_apps[i].ver : "invalid file");
             items[n].sub_color = s_apps[i].ok ? 0 : C_ERR;
+            items[n].icon = s_apps[i].icon;
         }
         int apps_end = n;
         items[n++] = (launcher_item_t){LI_STORE, "App Store", "get and update apps", gfx_rgb(40, 110, 230), 0};
