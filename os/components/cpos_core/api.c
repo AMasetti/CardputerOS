@@ -19,7 +19,9 @@ app_ctx_t *g_app;
 int cpos_has_perm(uint32_t p) { return g_app && (g_app->perms & p) == p; }
 
 void cpos_check_exit(void) {
-    if (g_app && g_app->exit_req && xTaskGetCurrentTaskHandle() == g_app->task) longjmp(g_app->jb, 1);
+    if (!g_app || !g_app->exit_req) return;
+    if (xTaskGetCurrentTaskHandle() == g_app->task) longjmp(g_app->jb, 1);
+    cpos_rtos_exit_point(); /* an extra app task ends here */
 }
 
 /* ---- time ------------------------------------------------------------------ */
@@ -295,6 +297,8 @@ const cpos_api_t *cpos_api_get(void) {
         cpos_audio_fill(&s_api_rw.audio);
         cpos_imu_fill(&s_api_rw.imu);
         cpos_ble_fill(&s_api_rw.ble, &s_api_rw.crypto);
+        cpos_rtos_fill(&s_api_rw.rtos);
+        cpos_media_fill(&s_api_rw.media);
         extern void cpos_gpio_fill(cpos_gpio_api_t *);
         cpos_gpio_fill(&s_api_rw.gpio);
     }
@@ -308,6 +312,8 @@ void cpos_app_release(app_ctx_t *a) {
     cpos_app_cleanup_net(a);
     cpos_app_cleanup_audio(a);
     cpos_app_cleanup_ble(a);
+    cpos_app_cleanup_media(a);
+    cpos_app_cleanup_rtos(a);
     cpos_app_cleanup_gpio(a);
     cpos_app_cleanup_prefs(a);
     cpos_app_free_all(a);

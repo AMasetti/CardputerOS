@@ -17,6 +17,11 @@ CONFIG_ESP32S3_DATA_CACHE_32KB=y
 CONFIG_FATFS_LFN_HEAP=y
 CONFIG_FATFS_MAX_LFN=127
 CONFIG_FATFS_CODEPAGE_437=y
+# SD cards use 512-byte sectors. FatFs sizes its buffers for the largest sector it may see,
+# which includes the (unused) flash wear-levelling sector: at 4096 every open-file slot holds
+# a 4 KB buffer (~37 KB idle)
+CONFIG_WL_SECTOR_SIZE_512=y
+CONFIG_WL_SECTOR_SIZE_4096=n
 # TLS: certificate bundle, small buffers when idle
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
 CONFIG_MBEDTLS_DYNAMIC_BUFFER=y

@@ -31,6 +31,8 @@ void gfx_rect(cpos_canvas_t *c, int x, int y, int w, int h, uint32_t color, int 
 void gfx_set_clip(cpos_canvas_t *c, int x, int y, int w, int h);
 void gfx_clear_clip(cpos_canvas_t *c);
 uint16_t gfx_rgb(uint8_t r, uint8_t g, uint8_t b);
+void gfx_put_pixel(cpos_canvas_t *c, int x, int y, uint16_t v); /* clipped, no flush */
+void gfx_touch(cpos_canvas_t *c, int x, int y, int w, int h);      /* mark an area for the next flush */
 void gfx_fill_api(cpos_gfx_api_t *api);
 
 /* display driver (hal) */

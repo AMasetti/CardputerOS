@@ -6,8 +6,11 @@
 #include "esp_wifi.h"
 #include "freertos/event_groups.h"
 #include "lwip/sockets.h"
+#include "esp_sntp.h"
 #include "nvs.h"
+#include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 static const char *TAG = "net";
 static bool s_inited;
@@ -161,6 +164,70 @@ int cpos_wifi_autoconnect(int timeout_ms) {
 }
 
 int cpos_wifi_is_connected(void) { return s_inited && s_status == 3 && s_ip != 0; }
+
+/* ---- clock ------------------------------------------------------------------------------- */
+/* Local time = UTC + offset in hours, saved in NVS ("sys"/"utc_off"); Argentina by default. */
+int cpos_time_offset(void) {
+    nvs_handle_t h;
+    int32_t v = -3;
+    if (nvs_open("sys", NVS_READONLY, &h) == ESP_OK) {
+        nvs_get_i32(h, "utc_off", &v);
+        nvs_close(h);
+    }
+    return v;
+}
+
+void cpos_time_set_offset(int hours) {
+    nvs_handle_t h;
+    if (hours != cpos_time_offset() && nvs_open("sys", NVS_READWRITE, &h) == ESP_OK) {
+        nvs_set_i32(h, "utc_off", hours);
+        nvs_commit(h);
+        nvs_close(h);
+    }
+    /* POSIX TZ counts the other way round: UTC-3 is "<-03>3" */
+    char tz[24];
+    snprintf(tz, sizeof(tz), "<%+03d>%d", hours, -hours);
+    setenv("TZ", tz, 1);
+    tzset();
+}
+
+int cpos_time_valid(void) { return time(NULL) > 1735689600; /* after 2025-01-01: synced */ }
+
+static void time_sync_start(void) {
+    if (esp_sntp_enabled()) {
+        esp_sntp_restart();
+        return;
+    }
+    esp_sntp_setoperatingmode(ESP_SNTP_OPMODE_POLL);
+    esp_sntp_setservername(0, "pool.ntp.org");
+    esp_sntp_setservername(1, "time.google.com");
+    esp_sntp_init();
+}
+
+/* Connects to the saved network and fetches the time without holding up the caller. */
+static volatile int s_bg_running;
+static void bg_task(void *arg) {
+    if (cpos_wifi_autoconnect(15000) == 0) {
+        time_sync_start();
+        ESP_LOGI(TAG, "online, syncing time");
+    }
+    s_bg_running = 0;
+    vTaskDelete(NULL);
+}
+
+void cpos_net_background_connect(void) {
+    if (s_bg_running) return;
+    char ssid[33], pass[65];
+    if (cpos_wifi_load(ssid, pass)) return; /* nothing saved: stay offline */
+    if (cpos_wifi_is_connected()) {
+        if (!cpos_time_valid()) time_sync_start();
+        return;
+    }
+    s_bg_running = 1;
+    if (xTaskCreate(bg_task, "netbg", 4096, NULL, 3, NULL) != pdPASS) s_bg_running = 0;
+}
+
+int cpos_net_background_busy(void) { return s_bg_running; }
 
 /* ---- app-facing API ----------------------------------------------------------------- */
 #define NEED_WIFI(ret) do { if (!cpos_has_perm(CPOS_PERM_WIFI)) return ret; cpos_check_exit(); } while (0)

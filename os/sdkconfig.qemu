@@ -1,6 +1,9 @@
 # Emulator test build: apps are read from a FAT partition and run once each.
 CONFIG_CPOS_EMULATOR=y
 CONFIG_CPOS_SD_FROM_FLASH=y
+# the FAT image in flash uses 4096-byte sectors
+CONFIG_WL_SECTOR_SIZE_512=n
+CONFIG_WL_SECTOR_SIZE_4096=y
 CONFIG_CPOS_SELFTEST=y
 CONFIG_ESP_CONSOLE_UART_DEFAULT=y
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=n

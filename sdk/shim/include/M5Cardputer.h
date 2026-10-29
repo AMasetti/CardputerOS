@@ -19,7 +19,20 @@ inline uint16_t color565(uint8_t r, uint8_t g, uint8_t b) { return (uint16_t)(((
 struct rgb565_t { uint16_t raw; };
 struct swap565_t { uint16_t raw; };
 inline uint32_t color888(uint8_t r, uint8_t g, uint8_t b) { return 0x1000000u | ((uint32_t)r << 16) | ((uint32_t)g << 8) | b; }
+// image source for drawJpg/drawPng
+namespace v1 {
+struct DataWrapper {
+    virtual ~DataWrapper() {}
+    virtual int read(uint8_t *buf, uint32_t len) = 0;
+    virtual void skip(int32_t offset) = 0;
+    virtual bool seek(uint32_t offset) = 0;
+    virtual void close() {}
+    virtual int32_t tell() = 0;
+};
+}  // namespace v1
+using v1::DataWrapper;
 }  // namespace lgfx
+typedef textdatum_t datum_t;
 
 namespace fonts {
 inline constexpr lgfx::IFont Font0{CPOS_FONT0};
@@ -63,6 +76,13 @@ using lgfx::color565;
 #define TFT_VIOLET 0x915C
 
 class LGFXBase {
+    static size_t jpg_read(void *ctx, uint8_t *buf, size_t n) {
+        lgfx::DataWrapper *d = (lgfx::DataWrapper *)ctx;
+        if (!buf) { d->skip((int32_t)n); return n; }
+        int r = d->read(buf, (uint32_t)n);
+        return r > 0 ? (size_t)r : 0;
+    }
+
 public:
     virtual ~LGFXBase() {}
     virtual cpos_canvas_t *target() = 0;
@@ -97,6 +117,18 @@ public:
     void setTextSize(float sx, float sy = 0) { GFXAPI.set_text_size(target(), sx, sy); }
     void setTextColor(uint32_t fg) { GFXAPI.set_text_color(target(), c32c(fg), 0, 0); }
     void setTextColor(uint32_t fg, uint32_t bg) { GFXAPI.set_text_color(target(), c32c(fg), c32c(bg), 1); }
+    // JPEG decoded by the OS: scaled down to fit maxW x maxH and centered there (offsets, scale
+    // and datum are not supported). PNG is not available.
+    bool drawJpg(lgfx::DataWrapper *data, int x = 0, int y = 0, int maxW = 0, int maxH = 0, int = 0, int = 0,
+                 float = 1.0f, float = 0.0f, datum_t = top_left) {
+        cpos_canvas_t *c = target();
+        if (!c || !data) return false;
+        if (maxW <= 0) maxW = width() - x;
+        if (maxH <= 0) maxH = height() - y;
+        return cpos_api->media.jpeg_draw(c, x, y, maxW, maxH, jpg_read, data) == 0;
+    }
+    bool drawPng(lgfx::DataWrapper *, int = 0, int = 0, int = 0, int = 0, int = 0, int = 0, float = 1.0f, float = 0.0f,
+                 datum_t = top_left) { return false; }
     void setTextDatum(textdatum_t d) { GFXAPI.set_text_datum(target(), d); }
     void setTextWrap(bool w, bool = false) { GFXAPI.set_text_wrap(target(), w); }
     int drawString(const char *s, int x, int y) { return GFXAPI.draw_string(target(), s, x, y); }

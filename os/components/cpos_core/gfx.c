@@ -195,6 +195,9 @@ static inline void put(cpos_canvas_t *c, int x, int y, uint16_t v) {
     c->buf[y * c->w + x] = v;
 }
 
+void gfx_put_pixel(cpos_canvas_t *c, int x, int y, uint16_t v) { put(c, x, y, v); }
+void gfx_touch(cpos_canvas_t *c, int x, int y, int w, int h) { mark_dirty(c, x, y, x + w, y + h); }
+
 static void pixel(cpos_canvas_t *c, int x, int y, uint32_t color) {
     put(c, x, y, col16(color));
     mark_dirty(c, x, y, x + 1, y + 1);

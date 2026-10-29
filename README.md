@@ -102,5 +102,6 @@ version that has no release yet gets one: tag `<name>-vX.Y.Z`, asset `<tag>.elf`
 
 Apache-2.0 for the OS and SDK (see `LICENSE`). Third-party code keeps its own license:
 QR code generator (MIT, `os/components/cpos_core/third_party/qrcodegen`), BMI270 microcode
-(Bosch, BSD-3-Clause), bitmap fonts generated from DejaVu (free license) and the classic 5x7 font
+(Bosch, BSD-3-Clause), the Helix MP3 decoder (RealNetworks, RPSL/RCSL,
+`os/components/cpos_core/third_party/libhelix-mp3`), bitmap fonts generated from DejaVu (free license) and the classic 5x7 font
 from Adafruit-GFX (BSD). Each app folder declares its own license when it differs.

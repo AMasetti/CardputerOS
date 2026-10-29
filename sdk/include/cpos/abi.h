@@ -26,7 +26,7 @@ extern "C" {
 #endif
 
 #define CPOS_ABI_MAJOR 1
-#define CPOS_ABI_MINOR 1
+#define CPOS_ABI_MINOR 2
 
 /* ---- permissions (declared in the app header) ----------------------------- */
 #define CPOS_PERM_SD        (1u << 0)
@@ -252,6 +252,33 @@ typedef struct {
     uintptr_t reserved[4];
 } cpos_crypto_api_t;
 
+/* ---- tasks and locks (minor 2) ---------------------------------------------------------
+ * Extra app tasks end on their own when the app exits (inside delay/yield calls), or are
+ * deleted by the OS shortly after. */
+typedef struct {
+    int (*task_create)(void (*fn)(void *arg), const char *name, uint32_t stack, void *arg, int priority); /* id >= 0 */
+    void (*task_delete)(int id);           /* -1 = the calling task (does not return) */
+    void *(*mutex_create)(int recursive);
+    int (*mutex_lock)(void *m, uint32_t timeout_ms); /* 0 locked */
+    void (*mutex_unlock)(void *m);
+    void (*mutex_delete)(void *m);
+    uintptr_t reserved[4];
+} cpos_rtos_api_t;
+
+/* ---- media decoders, run by the OS (minor 2) -------------------------------------------- */
+typedef struct { int rate, channels, samples, bitrate; } cpos_mp3_info_t; /* samples: all channels */
+typedef size_t (*cpos_read_fn)(void *ctx, uint8_t *buf, size_t n); /* buf NULL: skip n bytes */
+typedef struct {
+    void *(*mp3_open)(void);
+    void (*mp3_close)(void *dec);
+    int (*mp3_sync)(const uint8_t *buf, int len);   /* offset of the next frame header, <0 none */
+    /* decodes one frame from *in (advancing it and *left); pcm needs room for 2304 samples */
+    int (*mp3_decode)(void *dec, const uint8_t **in, int *left, int16_t *pcm, cpos_mp3_info_t *info); /* 0 ok, <0 error */
+    /* JPEG scaled down (1/1..1/8) to fit max_w x max_h, centered there */
+    int (*jpeg_draw)(cpos_canvas_t *c, int x, int y, int max_w, int max_h, cpos_read_fn read, void *ctx); /* 0 ok */
+    uintptr_t reserved[4];
+} cpos_media_api_t;
+
 /* ---- libc ---------------------------------------------------------------------- */
 #include "libc_table.h"
 
@@ -290,6 +317,9 @@ struct cpos_api {
     /* minor 1 */
     cpos_ble_api_t ble;
     cpos_crypto_api_t crypto;
+    /* minor 2 */
+    cpos_rtos_api_t rtos;
+    cpos_media_api_t media;
 };
 
 #ifdef __cplusplus

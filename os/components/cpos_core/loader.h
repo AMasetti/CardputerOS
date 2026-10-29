@@ -3,10 +3,17 @@
 #include <stdint.h>
 #include "cpos/abi.h"
 
+#define CPOS_MAX_CODE_PARTS 8
+
 typedef struct {
     cpos_app_header_t header;   /* relocated copy, valid after cpos_load */
-    void *code;                 /* executable memory (instruction-bus alias) */
+    void *code;                 /* executable memory (instruction-bus alias): part[0] */
     size_t code_size;
+    /* the code may be split at the cut points the build lists in .cpos_splits when no single
+     * free block is big enough: part i holds code offsets part_off[i]..part_off[i+1] */
+    int nparts;
+    void *part[CPOS_MAX_CODE_PARTS];
+    uint32_t part_off[CPOS_MAX_CODE_PARTS + 1];
     void *data;
     size_t data_size;
     cpos_app_entry_t entry;

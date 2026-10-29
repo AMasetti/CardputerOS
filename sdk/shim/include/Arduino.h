@@ -68,6 +68,32 @@ inline long random(long max) { return max > 0 ? (long)(cpos_api->random32() % (u
 inline long random(long min, long max) { return min >= max ? min : min + random(max - min); }
 inline uint32_t esp_random() { return cpos_api->random32(); }
 
+// FreeRTOS subset: extra tasks run through the OS (1 tick = 1 ms)
+typedef void *TaskHandle_t;
+typedef uint32_t TickType_t;
+typedef int BaseType_t;
+typedef unsigned UBaseType_t;
+#define pdPASS 1
+#define pdFAIL 0
+#define pdTRUE 1
+#define pdFALSE 0
+#define portMAX_DELAY 0xFFFFFFFFu
+#define portTICK_PERIOD_MS 1
+#define pdMS_TO_TICKS(ms) ((TickType_t)(ms))
+#define tskIDLE_PRIORITY 0
+inline void vTaskDelay(TickType_t t) { cpos_api->delay_ms(t ? t : 1); }
+inline TickType_t xTaskGetTickCount() { return cpos_api->millis(); }
+inline BaseType_t xTaskCreatePinnedToCore(void (*fn)(void *), const char *name, uint32_t stack, void *arg, UBaseType_t prio,
+                                          TaskHandle_t *h, BaseType_t = 0) {
+    int id = cpos_api->rtos.task_create(fn, name, stack, arg, (int)prio);
+    if (h) *h = id < 0 ? nullptr : (TaskHandle_t)(intptr_t)(id + 1);
+    return id < 0 ? pdFAIL : pdPASS;
+}
+inline BaseType_t xTaskCreate(void (*fn)(void *), const char *name, uint32_t stack, void *arg, UBaseType_t prio, TaskHandle_t *h) {
+    return xTaskCreatePinnedToCore(fn, name, stack, arg, prio, h);
+}
+inline void vTaskDelete(TaskHandle_t h) { cpos_api->rtos.task_delete(h ? (int)(intptr_t)h - 1 : -1); }
+
 inline void pinMode(int pin, int mode) { cpos_api->gpio.pin_mode(pin, mode); }
 inline void digitalWrite(int pin, int level) { cpos_api->gpio.write(pin, level); }
 inline int digitalRead(int pin) { return cpos_api->gpio.read(pin); }

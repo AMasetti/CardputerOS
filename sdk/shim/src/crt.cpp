@@ -126,14 +126,34 @@ void terminate() noexcept { cpos_api->exit_app(-4); for (;;) {} }
 #include <string>
 template class std::__cxx11::basic_string<char>;
 
-// ---- std::mutex: app code runs on a single task (the OS delivers events to it), so
-// locking has nothing to wait for
+// ---- std::mutex: real OS mutexes (apps may run extra tasks). A pthread_mutex_t is one word
+// holding the OS handle; it starts as 0xFFFFFFFF (static initializer) or 0 and is created on
+// first use.
+#include <stdint.h>
+static void *mutex_of(void *m) {
+    volatile uint32_t *w = (volatile uint32_t *)m;
+    uint32_t v = *w;
+    if (v && v != 0xFFFFFFFFu) return (void *)v;
+    if (cpos_api->abi_minor < 2) return nullptr; /* older OS: single task, nothing to wait for */
+    void *h = cpos_api->rtos.mutex_create(0);
+    if (!h) return nullptr;
+    if (!__atomic_compare_exchange_n(w, &v, (uint32_t)h, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+        cpos_api->rtos.mutex_delete(h); /* another task created it first */
+        return (void *)*w;
+    }
+    return h;
+}
 extern "C" {
-int pthread_mutex_lock(void *) { return 0; }
-int pthread_mutex_unlock(void *) { return 0; }
-int pthread_mutex_trylock(void *) { return 0; }
-int pthread_mutex_init(void *, const void *) { return 0; }
-int pthread_mutex_destroy(void *) { return 0; }
+int pthread_mutex_lock(void *m) { void *h = mutex_of(m); return h ? cpos_api->rtos.mutex_lock(h, 0xFFFFFFFFu) : 0; }
+int pthread_mutex_unlock(void *m) { void *h = mutex_of(m); if (h) cpos_api->rtos.mutex_unlock(h); return 0; }
+int pthread_mutex_trylock(void *m) { void *h = mutex_of(m); return !h || cpos_api->rtos.mutex_lock(h, 0) == 0 ? 0 : 16 /* EBUSY */; }
+int pthread_mutex_init(void *m, const void *) { *(uint32_t *)m = 0; return 0; }
+int pthread_mutex_destroy(void *m) {
+    uint32_t v = *(uint32_t *)m;
+    if (v && v != 0xFFFFFFFFu) cpos_api->rtos.mutex_delete((void *)v);
+    *(uint32_t *)m = 0;
+    return 0;
+}
 }
 
 // ---- 64-bit string to integer (not in the OS table) --------------------------------------

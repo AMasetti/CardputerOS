@@ -296,6 +296,7 @@ static int update_os(const int v[3]) {
 
 void store_screen(void) {
     if (!hal_sd_ready()) { ui_message("Store", "Insert an SD card first."); return; }
+    ui_wait_background_net();
     if (!cpos_wifi_is_connected()) {
         ui_status("Connecting...", "using the saved WiFi");
         if (cpos_wifi_autoconnect(12000) != 0) {
