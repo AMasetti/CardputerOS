@@ -1,4 +1,4 @@
-#include "../src/sphero_core.h"
+#include "../src/sphero1_core.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -7,7 +7,7 @@ static int fails;
 
 int main()
 {
-    sphero::Builder b;
+    sphero1::Builder b;
     uint8_t p[32];
 
     // roll 0x40 rumbo 270: FF FE 02 30 00 05 40 01 0E 01 chk
@@ -34,16 +34,16 @@ int main()
 
     // respuesta simple válida / dañada
     const uint8_t resp[] = {0xFF, 0xFF, 0x00, 0x07, 0x01, (uint8_t)~(0x00 + 0x07 + 0x01)};
-    CHECK(sphero::parse_response(resp, sizeof(resp)) == 0);
+    CHECK(sphero1::parse_response(resp, sizeof(resp)) == 0);
     uint8_t bad[6];
     memcpy(bad, resp, 6);
     bad[5] ^= 1;
-    CHECK(sphero::parse_response(bad, 6) == -1);
+    CHECK(sphero1::parse_response(bad, 6) == -1);
 
     // UUIDs: 22bb746f-2ba1-7554-2d6f-726568705327 en little endian
     const uint8_t u[16] = {0x27, 0x53, 0x70, 0x68, 0x65, 0x72, 0x6f, 0x2d, 0x54, 0x75, 0xa1, 0x2b, 0x6f, 0x74, 0xbb, 0x22};
-    CHECK(sphero::uuid_is(u, sphero::CHR_CMD));
-    CHECK(!sphero::uuid_is(u, sphero::CHR_WAKE));
+    CHECK(sphero1::uuid_is(u, sphero1::CHR_CMD));
+    CHECK(!sphero1::uuid_is(u, sphero1::CHR_WAKE));
 
     printf(fails ? "FAILED\n" : "PASS\n");
     return fails;

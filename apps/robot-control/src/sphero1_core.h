@@ -7,7 +7,7 @@
 #include <stdint.h>
 #include <stddef.h>
 
-namespace sphero {
+namespace sphero1 {
 
 // UUIDs: 22bb746f-2bXX-7554-2d6f-726568705327. En el ABI de BLE van en little endian.
 static const uint8_t UUID_TAIL[10] = {0x75, 0x54, 0x2d, 0x6f, 0x72, 0x65, 0x68, 0x70, 0x53, 0x27};
@@ -92,4 +92,4 @@ inline int parse_response(const uint8_t *p, size_t n)
     return (uint8_t)~sum == p[5 + dlen - 1] ? p[2] : -1;
 }
 
-}  // namespace sphero
+}  // namespace sphero1

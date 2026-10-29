@@ -1,0 +1,9 @@
+{
+  "name": "robot-control",
+  "displayName": "Robot Control",
+  "version": "0.1.0",
+  "description": "Control remoto de robots y drones de juguete: Sphero BB-8/Ollie/R2-D2/R2-Q5/BB-9E/BOLT, Parrot Rolling Spider y Jumping Sumo (con video).",
+  "perms": ["ble", "wifi"],
+  "abi_minor": 3,
+  "stack": 8192
+}

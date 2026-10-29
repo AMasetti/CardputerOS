@@ -140,6 +140,9 @@ static void b_end(void);
 
 static int b_begin(void) {
     if (!cpos_has_perm(CPOS_PERM_BLE)) return 0;
+#ifdef CONFIG_CPOS_EMULATOR
+    return 1; /* no radio in the emulator: scans return a few fake robots */
+#endif
     if (s_up) return 1;
     if (!s_done) s_done = xSemaphoreCreateBinary();
     xSemaphoreTake(s_done, 0);
@@ -179,6 +182,19 @@ static void b_end(void) {
 
 /* ---- scanning ---------------------------------------------------------------------- */
 static int b_scan_start(uint32_t ms, int active, uint16_t itvl_ms, uint16_t win_ms, int dup) {
+#ifdef CONFIG_CPOS_EMULATOR
+    static const char *names[] = {"BB-4D2A", "D2-7F31", "GB-A011", "SB-9C4E", "RS_W120114"};
+    s_adv_head = s_adv_n = 0;
+    for (int i = 0; i < 5; i++) {
+        cpos_ble_adv_t *a = &s_adv[s_adv_n++];
+        memset(a, 0, sizeof(*a));
+        a->addr[0] = i + 1; a->addr_type = 1; a->rssi = -45 - 7 * i;
+        a->data[0] = 1 + strlen(names[i]); a->data[1] = 0x09;
+        memcpy(&a->data[2], names[i], strlen(names[i]));
+        a->len = 2 + strlen(names[i]);
+    }
+    return 1;
+#endif
     if (!s_up || s_conn != NO_CONN) return 0;
     if (s_scanning) ble_gap_disc_cancel();
     struct ble_gap_disc_params p = {0};

@@ -1,8 +1,0 @@
-{
-  "name": "bb8-rc",
-  "displayName": "BB-8 RC",
-  "version": "0.1.0",
-  "description": "Control remoto del BB-8 original de Sphero (y Ollie / Sphero 2.0) por Bluetooth LE: manejo, calibración de rumbo y color.",
-  "perms": ["ble"],
-  "stack": 6144
-}

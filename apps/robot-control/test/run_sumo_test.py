@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Fake Parrot Jumping Sumo + checks for sumo_core.h.
 
-    python3 apps/sumo-rc/test/run_host_test.py
+    python3 apps/robot-control/test/run_host_test.py
 
-Builds host_test.cpp, plays a drone on localhost (discovery over TCP, frames over UDP, an MJPEG stream
+Builds sumo_test.cpp, plays a drone on localhost (discovery over TCP, frames over UDP, an MJPEG stream
 split in fragments) and verifies what the client sent and what it reassembled.
 """
 import io, json, os, pathlib, socket, struct, subprocess, sys, tempfile, threading, time
@@ -12,7 +12,7 @@ from PIL import Image, ImageDraw
 HERE = pathlib.Path(__file__).resolve().parent
 work = pathlib.Path(tempfile.mkdtemp(prefix="sumo_test_"))
 exe = work / "host_test"
-subprocess.check_call(["g++", "-std=c++17", "-O1", "-Wall", "-o", str(exe), str(HERE / "host_test.cpp")])
+subprocess.check_call(["g++", "-std=c++17", "-O1", "-Wall", "-o", str(exe), str(HERE / "sumo_test.cpp")])
 
 FT_ACK, FT_DATA, FT_LOW, FT_DACK = 1, 2, 3, 4
 

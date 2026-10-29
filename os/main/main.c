@@ -25,13 +25,13 @@ static char s_name[40];
 static volatile int s_dumped;
 
 static void kill_cb(void *arg) {
-    if (g_app && esp_timer_get_time() - s_start_us > (g_app && !strncmp(g_app->img.header.name, "sumo", 4) ? 9000000 : 2200000)) g_app->exit_req = 1;
+    if (g_app && esp_timer_get_time() - s_start_us > (g_app && !strncmp(g_app->img.header.name, "robot", 5) ? 9000000 : 2200000)) g_app->exit_req = 1;
 }
 
 static void frame_task(void *arg) {
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(100));
-        if (g_app && !s_dumped && esp_timer_get_time() - s_start_us > 1600000 && !(g_app && !strncmp(g_app->img.header.name, "sumo", 4))) {
+        if (g_app && !s_dumped && esp_timer_get_time() - s_start_us > 1600000 && !(g_app && !strncmp(g_app->img.header.name, "robot", 5))) {
             s_dumped = 1;
             hal_display_dump(s_name);
         }
@@ -40,15 +40,18 @@ static void frame_task(void *arg) {
 
 static void ui_task(void *arg) { cpos_ui_run(); }
 
-/* the Sumo app has a demo mode: press 'd' on its first screen once it is up */
+/* the Robot Control app: move down the fake robot list and try to connect */
 static void script_task(void *arg) {
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(200));
-        if (g_app && !strncmp(g_app->img.header.name, "sumo", 4) && esp_timer_get_time() - s_start_us > 2500000) {
-            hal_display_dump("sumo-scan");
-            hal_kbd_inject('d');
-            vTaskDelay(pdMS_TO_TICKS(2500));
-            hal_display_dump("sumo-demo");
+        if (g_app && !strncmp(g_app->img.header.name, "robot", 5) && esp_timer_get_time() - s_start_us > 2500000) {
+            hal_display_dump("robot-scan");
+            hal_kbd_inject('.');
+            vTaskDelay(pdMS_TO_TICKS(1500));
+            hal_display_dump("robot-scan2");
+            hal_kbd_inject('\n');
+            vTaskDelay(pdMS_TO_TICKS(5000));
+            hal_display_dump("robot-connect");
             for (;;) vTaskDelay(pdMS_TO_TICKS(1000));
         }
     }
