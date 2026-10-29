@@ -31,6 +31,7 @@ void ui_message(const char *title, const char *text);
 int ui_confirm(const char *title, const char *text);
 int ui_menu(const char *title, ui_item_t *items, int n, int sel, const char *hint);
 int ui_input(const char *title, char *buf, int max, int secret); /* 1 accepted, 0 cancelled */
+void ui_wait_background_net(void);
 void ui_progress(const char *title, const char *l2, int pct);
 
 /* store.c */

@@ -30,7 +30,7 @@ enum Anim : uint32_t { ANIM_STOP = 0, ANIM_SPIN = 1, ANIM_TAP = 2, ANIM_SLOWSHAK
                        ANIM_ONDULATION = 5, ANIM_SPINJUMP = 6, ANIM_SPINTOPOSTURE = 7, ANIM_SPIRAL = 8, ANIM_SLALOM = 9 };
 
 static const int MAX_FRAGMENTS = 128;        // the ack mask has room for 128 fragments
-static const size_t MAX_JPEG = 32 * 1024;    // a 640x480 frame from the Sumo camera is well below this
+static const size_t MAX_JPEG = 24 * 1024;    // a 640x480 frame from the Sumo camera is well below this
 
 struct Listener {
     virtual ~Listener() {}

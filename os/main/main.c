@@ -63,10 +63,21 @@ static void watch_task(void *arg) {
     }
     vTaskDelete(NULL);
 }
+typedef struct { const unsigned char *d; size_t n, pos; } memsrc_t;
+static size_t mem_read(void *ctx, uint8_t *buf, size_t n) {
+    memsrc_t *m = ctx;
+    size_t left = m->n - m->pos;
+    if (n > left) n = left;
+    if (buf) memcpy(buf, m->d + m->pos, n);
+    m->pos += n;
+    return n;
+}
+
 static void jpeg_test(void) {
     cpos_canvas_t *c = gfx_create(CPOS_SCREEN_W, CPOS_SCREEN_H, 16);
     gfx_fill(c, 0x0000);
-    int rc = cpos_api_get()->gfx.draw_jpg(c, test_jpeg, sizeof(test_jpeg), 0, 15, 2);
+    memsrc_t src = {test_jpeg, sizeof(test_jpeg), 0};
+    int rc = cpos_api_get()->media.jpeg_draw(c, 0, 15, 160, 120, mem_read, &src);
     ESP_LOGI(TAG, "SELFTEST jpeg decode rc=%d (%u bytes)", rc, (unsigned)sizeof(test_jpeg));
     gfx_push(c, NULL, 0, 0, -1);
     hal_display_dump("jpeg-test");

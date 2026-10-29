@@ -44,6 +44,18 @@ enum class Screen { Scan, Connecting, Drive };
 static Screen screen = Screen::Scan;
 static bool dirty = true;
 
+// JPEG desde memoria para el decodificador del OS (cpos_api->media.jpeg_draw)
+struct MemReader { const uint8_t *d; size_t n, pos; };
+static size_t memRead(void *ctx, uint8_t *buf, size_t n)
+{
+    auto *m = static_cast<MemReader *>(ctx);
+    size_t left = m->n - m->pos;
+    if (n > left) n = left;
+    if (buf) memcpy(buf, m->d + m->pos, n);  // buf nulo = saltear n bytes
+    m->pos += n;
+    return n;
+}
+
 // --- red --------------------------------------------------------------------------------
 struct Net : sumo::Listener {
     int udp = -1;
@@ -66,7 +78,8 @@ struct Net : sumo::Listener {
         // la decodificación tarda: si venimos apurados se saltea el cuadro para no demorar el manejo
         if (millis() - lastDecode < 70) return;
         lastDecode = millis();
-        if (canvas.drawJpgScaled(d, (uint32_t)n, 0, HUD_H, 2)) {
+        MemReader r{d, n, 0};
+        if (cpos_api->media.jpeg_draw(canvas.target(), 0, HUD_H, VID_W, VID_H, memRead, &r) == 0) {  // 640x480 -> 1/4
             haveVideo = true;
             dirty = true;
         } else {

@@ -26,7 +26,7 @@ extern "C" {
 #endif
 
 #define CPOS_ABI_MAJOR 1
-#define CPOS_ABI_MINOR 1
+#define CPOS_ABI_MINOR 3
 
 /* ---- permissions (declared in the app header) ----------------------------- */
 #define CPOS_PERM_SD        (1u << 0)
@@ -118,9 +118,7 @@ typedef struct {
     void (*set_brightness)(uint8_t v);
     /* copy a rectangle of RGB565 pixels; swap = bytes are big-endian; transparent < 0: opaque */
     void (*blit)(cpos_canvas_t *c, int x, int y, int w, int h, const uint16_t *pix, int swap, int transparent);
-    /* minor 1: decode a baseline JPEG into the canvas at x,y; scale_log2 0..3 = 1, 1/2, 1/4, 1/8. 0 on success */
-    int (*draw_jpg)(cpos_canvas_t *c, const uint8_t *data, size_t len, int x, int y, int scale_log2);
-    uintptr_t reserved[3]; /* room for minor additions */
+    uintptr_t reserved[4]; /* room for minor additions */
 } cpos_gfx_api_t;
 
 /* ---- audio, sensors, power, io ---------------------------------------------- */
@@ -206,12 +204,84 @@ typedef struct {
     int (*setsockopt)(int fd, int level, int opt, const void *val, uint32_t len);
     int (*fcntl)(int fd, int cmd, int arg);
     int (*close)(int fd);
-    /* minor 1: stream sockets (the fd comes from socket()) */
+    /* minor 3: stream sockets (the fd comes from socket()) */
     int (*sock_connect)(int fd, const void *addr, uint32_t len);
     int (*sock_send)(int fd, const void *buf, size_t len, int flags);
     int (*sock_recv)(int fd, void *buf, size_t len, int flags);
     uintptr_t reserved[1]; /* room for minor additions */
 } cpos_net_api_t;
+
+/* ---- bluetooth LE (minor 1): central/observer, one connection ------------------
+ * The OS runs the stack; the app polls scan reports and notifications, so no app code
+ * ever runs on the BLE task. Addresses are little endian (byte 0 = least significant). */
+typedef struct {
+    uint8_t addr[6];
+    uint8_t addr_type;
+    uint8_t event;      /* 0 ADV_IND, 1 DIRECT_IND, 2 SCAN_IND, 3 NONCONN_IND, 4 SCAN_RSP */
+    int8_t rssi;
+    uint8_t len;
+    uint8_t data[31];   /* raw advertising payload (AD structures) */
+} cpos_ble_adv_t;
+
+typedef struct {
+    uint8_t uuid[16];   /* 128-bit form, little endian (16/32-bit UUIDs expanded on the base UUID) */
+    uint8_t uuid_bits;  /* 16, 32 or 128: the size the peer used */
+    uint8_t props;      /* characteristics: GATT property bits (0x02 read, 0x04 write no rsp, 0x08 write, 0x10 notify, 0x20 indicate) */
+    uint16_t handle;    /* service: start handle; characteristic: value handle */
+    uint16_t end_handle;/* service: end handle; characteristic: last handle of the characteristic */
+} cpos_ble_attr_t;
+
+typedef struct {
+    int (*begin)(void);                                  /* 1 when the stack is up */
+    void (*end)(void);
+    int (*scan_start)(uint32_t ms, int active, uint16_t interval_ms, uint16_t window_ms, int filter_duplicates); /* ms 0 = until stopped */
+    void (*scan_stop)(void);
+    int (*scanning)(void);
+    int (*scan_read)(cpos_ble_adv_t *out);               /* 1 = one report, 0 = none queued */
+    int (*connect)(const uint8_t addr[6], uint8_t addr_type, uint32_t timeout_ms); /* 0 ok */
+    void (*disconnect)(void);
+    int (*connected)(void);
+    int (*services)(cpos_ble_attr_t *out, int max);      /* discovers once per connection; returns count */
+    int (*characteristics)(int service, cpos_ble_attr_t *out, int max);
+    int (*read)(uint16_t handle, uint8_t *buf, size_t max);                   /* bytes, <0 error */
+    int (*write)(uint16_t handle, const uint8_t *data, size_t len, int with_response); /* 0 ok */
+    int (*subscribe)(uint16_t value_handle, uint16_t end_handle, int mode);    /* mode 1 notify, 2 indicate, 0 off */
+    int (*notify_read)(uint16_t *handle, uint8_t *buf, size_t max);           /* bytes, -1 none queued */
+    void (*set_power)(int level);                        /* esp_power_level_t value */
+    uintptr_t reserved[4];
+} cpos_ble_api_t;
+
+typedef struct {
+    int (*aes_ecb)(const uint8_t *key, int key_bits, int encrypt, const uint8_t in[16], uint8_t out[16]);
+    uintptr_t reserved[4];
+} cpos_crypto_api_t;
+
+/* ---- tasks and locks (minor 2) ---------------------------------------------------------
+ * Extra app tasks end on their own when the app exits (inside delay/yield calls), or are
+ * deleted by the OS shortly after. */
+typedef struct {
+    int (*task_create)(void (*fn)(void *arg), const char *name, uint32_t stack, void *arg, int priority); /* id >= 0 */
+    void (*task_delete)(int id);           /* -1 = the calling task (does not return) */
+    void *(*mutex_create)(int recursive);
+    int (*mutex_lock)(void *m, uint32_t timeout_ms); /* 0 locked */
+    void (*mutex_unlock)(void *m);
+    void (*mutex_delete)(void *m);
+    uintptr_t reserved[4];
+} cpos_rtos_api_t;
+
+/* ---- media decoders, run by the OS (minor 2) -------------------------------------------- */
+typedef struct { int rate, channels, samples, bitrate; } cpos_mp3_info_t; /* samples: all channels */
+typedef size_t (*cpos_read_fn)(void *ctx, uint8_t *buf, size_t n); /* buf NULL: skip n bytes */
+typedef struct {
+    void *(*mp3_open)(void);
+    void (*mp3_close)(void *dec);
+    int (*mp3_sync)(const uint8_t *buf, int len);   /* offset of the next frame header, <0 none */
+    /* decodes one frame from *in (advancing it and *left); pcm needs room for 2304 samples */
+    int (*mp3_decode)(void *dec, const uint8_t **in, int *left, int16_t *pcm, cpos_mp3_info_t *info); /* 0 ok, <0 error */
+    /* JPEG scaled down (1/1..1/8) to fit max_w x max_h, centered there */
+    int (*jpeg_draw)(cpos_canvas_t *c, int x, int y, int max_w, int max_h, cpos_read_fn read, void *ctx); /* 0 ok */
+    uintptr_t reserved[4];
+} cpos_media_api_t;
 
 /* ---- libc ---------------------------------------------------------------------- */
 #include "libc_table.h"
@@ -248,6 +318,12 @@ struct cpos_api {
     cpos_prefs_api_t prefs;
     cpos_net_api_t net;
     cpos_libc_t libc;
+    /* minor 1 */
+    cpos_ble_api_t ble;
+    cpos_crypto_api_t crypto;
+    /* minor 2 */
+    cpos_rtos_api_t rtos;
+    cpos_media_api_t media;
 };
 
 #ifdef __cplusplus

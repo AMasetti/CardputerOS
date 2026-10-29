@@ -37,6 +37,7 @@ public:
     size_t print(int v) { char b[16]; snprintf(b, sizeof(b), "%d", v); return print(b); }
     size_t print(unsigned v) { char b[16]; snprintf(b, sizeof(b), "%u", v); return print(b); }
     size_t print(long v) { char b[24]; snprintf(b, sizeof(b), "%ld", v); return print(b); }
+    size_t print(unsigned long v) { char b[24]; snprintf(b, sizeof(b), "%lu", v); return print(b); }
     size_t print(float v, int d = 2) { char b[32]; snprintf(b, sizeof(b), "%.*f", d, (double)v); return print(b); }
     size_t print(double v, int d = 2) { char b[32]; snprintf(b, sizeof(b), "%.*f", d, v); return print(b); }
     size_t println(const char *s) { size_t n = print(s); return n + print("\n"); }
@@ -44,6 +45,7 @@ public:
     size_t println(int v) { size_t n = print(v); return n + print("\n"); }
     size_t println(unsigned v) { size_t n = print(v); return n + print("\n"); }
     size_t println(long v) { size_t n = print(v); return n + print("\n"); }
+    size_t println(unsigned long v) { size_t n = print(v); return n + print("\n"); }
     size_t println(double v, int d = 2) { size_t n = print(v, d); return n + print("\n"); }
     size_t println() { return print("\n"); }
     size_t printf(const char *fmt, ...) {

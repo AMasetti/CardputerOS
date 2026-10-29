@@ -24,6 +24,10 @@ SECTIONS
 {
     .text : ALIGN(4)
     {
+        /* toolchain libraries keep their constants in separate sections, which the linker
+         * gathers in front: their code goes right after them, ahead of the app's own */
+        *libgcc.a:*(.literal .literal.* .text .text.*)
+        *libstdc++.a:*(.literal .literal.* .text .text.*)
         *(.literal .text .literal.* .text.*)
         . = ALIGN(4);
     } > code :code

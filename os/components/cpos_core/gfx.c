@@ -5,7 +5,6 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
-#include "rom/tjpgd.h"
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -41,12 +40,41 @@ static inline uint16_t col16(uint32_t c) {
 }
 
 /* ---- lifecycle ------------------------------------------------------------ */
+/* The launcher's full-screen buffer is kept here while an app runs: the first big canvas the
+ * app asks for (its screen or a full-screen sprite) gets it, so it never needs to find 64 KB in
+ * one piece in a heap the app has already split. Released if the app runs out of memory. */
+static uint16_t *s_spare;
+static size_t s_spare_px;
+
+void gfx_keep_spare(cpos_canvas_t *c) {
+    if (!c) return;
+    gfx_drop_spare();
+    s_spare = c->buf;
+    s_spare_px = (size_t)c->w * c->h;
+    free(c);
+}
+
+int gfx_drop_spare(void) {
+    if (!s_spare) return 0;
+    free(s_spare);
+    s_spare = NULL;
+    return 1;
+}
+
 cpos_canvas_t *gfx_create(int w, int h, int depth) {
     (void)depth;
     if (w <= 0 || h <= 0) return NULL;
     cpos_canvas_t *c = heap_caps_calloc(1, sizeof(*c), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     if (!c) return NULL;
-    c->buf = heap_caps_calloc((size_t)w * h, 2, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    size_t px = (size_t)w * h;
+    if (s_spare && px <= s_spare_px && px * 2 >= s_spare_px) {
+        c->buf = s_spare;
+        s_spare = NULL;
+        memset(c->buf, 0, px * 2);
+    } else {
+        c->buf = heap_caps_calloc(px, 2, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        if (!c->buf && gfx_drop_spare()) c->buf = heap_caps_calloc(px, 2, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    }
     if (!c->buf) {
         free(c);
         return NULL;
@@ -166,6 +194,9 @@ static inline void put(cpos_canvas_t *c, int x, int y, uint16_t v) {
     if (x < c->cx0 || x >= c->cx1 || y < c->cy0 || y >= c->cy1) return;
     c->buf[y * c->w + x] = v;
 }
+
+void gfx_put_pixel(cpos_canvas_t *c, int x, int y, uint16_t v) { put(c, x, y, v); }
+void gfx_touch(cpos_canvas_t *c, int x, int y, int w, int h) { mark_dirty(c, x, y, x + w, y + h); }
 
 static void pixel(cpos_canvas_t *c, int x, int y, uint32_t color) {
     put(c, x, y, col16(color));
@@ -563,46 +594,6 @@ static void blit(cpos_canvas_t *c, int x, int y, int w, int h, const uint16_t *p
     mark_dirty(c, x < 0 ? 0 : x, y < 0 ? 0 : y, x + w > c->w ? c->w : x + w, y + h > c->h ? c->h : y + h);
 }
 
-/* ---- JPEG (ESP32-S3 ROM decoder, baseline only) ----------------------------------------- */
-typedef struct { const uint8_t *data; size_t len, pos; cpos_canvas_t *c; int x, y; } jpg_ctx_t;
-
-static unsigned jpg_in(JDEC *jd, uint8_t *buf, unsigned n) {
-    jpg_ctx_t *j = jd->device;
-    size_t left = j->len - j->pos;
-    if (n > left) n = left;
-    if (buf) memcpy(buf, j->data + j->pos, n);
-    j->pos += n;
-    return n;
-}
-
-static unsigned jpg_out(JDEC *jd, void *bitmap, JRECT *r) {
-    jpg_ctx_t *j = jd->device;
-    const uint8_t *p = bitmap;
-    for (int yy = r->top; yy <= r->bottom; yy++) {
-        int dy = j->y + yy;
-        for (int xx = r->left; xx <= r->right; xx++, p += 3) {
-            int dx = j->x + xx;
-            if (dx < j->c->cx0 || dx >= j->c->cx1 || dy < j->c->cy0 || dy >= j->c->cy1) continue;
-            j->c->buf[dy * j->c->w + dx] = gfx_rgb(p[0], p[1], p[2]);
-        }
-    }
-    return 1;
-}
-
-static int draw_jpg(cpos_canvas_t *c, const uint8_t *data, size_t len, int x, int y, int scale) {
-    if (!c || !data || len < 4 || scale < 0 || scale > 3) return -1;
-    void *work = malloc(4096);
-    if (!work) return -2;
-    jpg_ctx_t j = {data, len, 0, c, x, y};
-    JDEC jd;
-    int rc = -3;
-    if (jd_prepare(&jd, jpg_in, work, 4096, &j) == JDR_OK && jd_decomp(&jd, jpg_out, (uint8_t)scale) == JDR_OK) rc = 0;
-    free(work);
-    int w = 640 >> scale, h = 480 >> scale; /* dirty area: the decoded size is not known after a failure */
-    mark_dirty(c, x < 0 ? 0 : x, y < 0 ? 0 : y, x + w > c->w ? c->w : x + w, y + h > c->h ? c->h : y + h);
-    return rc;
-}
-
 /* ---- QR codes (encoder added in qr.c) ------------------------------------ */
 void gfx_qrcode(cpos_canvas_t *c, const char *text, int x, int y, int size);
 
@@ -644,5 +635,4 @@ void gfx_fill_api(cpos_gfx_api_t *a) {
     a->qrcode = gfx_qrcode;
     a->set_brightness = hal_display_brightness;
     a->blit = blit;
-    a->draw_jpg = draw_jpg;
 }

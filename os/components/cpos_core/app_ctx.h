@@ -13,6 +13,9 @@
 #define APP_MAX_DIRS 4
 #define APP_MAX_CANVAS 12
 #define APP_MAX_FDS 8
+#define APP_MAX_TASKS 4
+#define APP_MAX_MUTEX 16
+#define APP_MAX_DECODERS 2
 
 typedef struct alloc_hdr {
     struct alloc_hdr *prev, *next;
@@ -37,6 +40,9 @@ typedef struct app_ctx {
     int prefs_open[8];
     int pwm_pin[8];
     int audio_on, mic_on;
+    TaskHandle_t xtask[APP_MAX_TASKS];  /* extra tasks the app created */
+    void *mutex[APP_MAX_MUTEX];
+    void *mp3[APP_MAX_DECODERS];
 } app_ctx_t;
 
 extern app_ctx_t *g_app;
@@ -50,6 +56,14 @@ void cpos_boot_check(char *msg, size_t n);           /* crash report of the prev
 /* services shared with the UI */
 void cpos_net_fill(cpos_net_api_t *n);
 void cpos_audio_fill(cpos_audio_api_t *a);
+void cpos_ble_fill(cpos_ble_api_t *a, cpos_crypto_api_t *c);
+void cpos_app_cleanup_ble(app_ctx_t *a);
+void cpos_rtos_fill(cpos_rtos_api_t *a);
+void cpos_rtos_exit_point(void);
+void cpos_app_stop_tasks(app_ctx_t *a);
+void cpos_app_cleanup_rtos(app_ctx_t *a);
+void cpos_media_fill(cpos_media_api_t *a);
+void cpos_app_cleanup_media(app_ctx_t *a);
 void cpos_ui_beep(int hz, int ms);
 void cpos_ui_audio_off(void);
 void cpos_imu_fill(cpos_imu_api_t *a);
@@ -73,3 +87,8 @@ int cpos_wifi_load(char *ssid, char *pass);        /* 0 if credentials are store
 int cpos_wifi_autoconnect(int timeout_ms);
 int cpos_wifi_is_connected(void);
 void cpos_wifi_stop(void);
+void cpos_net_background_connect(void);           /* saved network + time sync, in a task */
+int cpos_net_background_busy(void);
+int cpos_time_offset(void);                        /* hours from UTC */
+void cpos_time_set_offset(int hours);               /* also applies it */
+int cpos_time_valid(void);                          /* 1 once the clock was synced */

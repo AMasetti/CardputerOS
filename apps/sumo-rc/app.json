@@ -4,6 +4,6 @@
   "version": "0.1.0",
   "description": "Control remoto del Parrot Jumping Sumo por WiFi: manejo con el teclado, saltos, animaciones, posturas y video de la cámara.",
   "perms": ["wifi"],
-  "abi_minor": 1,
-  "stack": 12288
+  "abi_minor": 3,
+  "stack": 8192
 }

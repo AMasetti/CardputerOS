@@ -9,6 +9,10 @@
  * a literal pool or a data word). The stored value already holds the link-time
  * address, so relocating means adding the load offset of whichever segment it
  * points into.
+ *
+ * When the heap has no single block for the code, it is loaded in parts. The build lists in
+ * .cpos_splits the offsets where that is safe (between functions, crossed by no PC-relative
+ * jump, call or constant load), so only the absolute words above need to know about the parts.
  */
 #include "loader.h"
 #include "esp_heap_caps.h"
@@ -93,19 +97,95 @@ int cpos_read_header(const char *path, cpos_app_header_t *out, const char **err)
  * 32-bit accesses are used there (it is what the IDF heap itself does for EXEC allocations), so
  * the same code path works on the chip and in the emulator.
  */
-static void write_code(void *code, size_t off, const void *src, size_t n) {
-    volatile uint32_t *d = (volatile uint32_t *)((uint8_t *)code + off);
+/* where code offset off (0..code_size) lives in memory */
+static uint8_t *code_at(const cpos_image_t *img, size_t off) {
+    int i = 0;
+    while (i + 1 < img->nparts && off >= img->part_off[i + 1]) i++;
+    return (uint8_t *)img->part[i] + (off - img->part_off[i]);
+}
+
+static int part_of(const cpos_image_t *img, uint32_t addr) {
+    for (int i = 0; i < img->nparts; i++) {
+        uint32_t p = (uint32_t)img->part[i];
+        if (addr >= p && addr < p + (img->part_off[i + 1] - img->part_off[i])) return i;
+    }
+    return -1;
+}
+
+static void write_code(cpos_image_t *img, size_t off, const void *src, size_t n) {
     const uint8_t *s = src;
-    for (size_t i = 0; i < n; i += 4) {
-        uint32_t w = 0;
-        size_t m = n - i < 4 ? n - i : 4;
-        memcpy(&w, s + i, m);
-        *d++ = w;
+    while (n) {
+        int i = 0;
+        while (i + 1 < img->nparts && off >= img->part_off[i + 1]) i++;
+        size_t m = img->part_off[i + 1] - off < n ? img->part_off[i + 1] - off : n;
+        volatile uint32_t *d = (volatile uint32_t *)((uint8_t *)img->part[i] + (off - img->part_off[i]));
+        for (size_t k = 0; k < m; k += 4) {
+            uint32_t w = 0;
+            memcpy(&w, s + k, m - k < 4 ? m - k : 4);
+            *d++ = w;
+        }
+        off += m;
+        s += m;
+        n -= m;
     }
 }
 
+/* sequential reader over the cut-point list */
+typedef struct { FILE *f; uint32_t off, n, i, base, cnt; uint32_t buf[32]; } splits_t;
+
+static int split_get(splits_t *sp, uint32_t i, uint32_t *v) {
+    if (i >= sp->n) return -1;
+    if (i < sp->base || i >= sp->base + sp->cnt) {
+        sp->base = i;
+        sp->cnt = sp->n - i < 32 ? sp->n - i : 32;
+        if (rd(sp->f, sp->off + i * 4, sp->buf, sp->cnt * 4)) return -1;
+    }
+    *v = sp->buf[i - sp->base];
+    return 0;
+}
+
+/* one block if possible, else the largest free blocks in turn, each filled up to the last
+ * cut point that fits */
+static int alloc_code(FILE *f, const Elf32_Ehdr_t *eh, cpos_image_t *img) {
+    size_t size = img->code_size;
+    img->part[0] = heap_caps_malloc(size + 4, MALLOC_CAP_EXEC);
+    if (img->part[0]) {
+        img->nparts = 1;
+        img->part_off[1] = size;
+        return 0;
+    }
+    Elf32_Shdr_t sh;
+    if (find_section(f, eh, ".cpos_splits", &sh) || sh.sh_size < 4) return -1;
+    splits_t sp = {.f = f, .off = sh.sh_offset, .n = sh.sh_size / 4};
+    size_t pos = 0;
+    while (pos < size) {
+        if (img->nparts == CPOS_MAX_CODE_PARTS) return -1;
+        size_t room = heap_caps_get_largest_free_block(MALLOC_CAP_EXEC);
+        if (room < 64) return -1;
+        room -= 16; /* the 4 spare bytes and allocator rounding */
+        size_t end = 0;
+        if (size - pos + 4 <= room) end = size;
+        else {
+            uint32_t s;
+            while (split_get(&sp, sp.i, &s) == 0 && s - pos + 4 <= room) {
+                if (s > pos) end = s;
+                sp.i++;
+            }
+        }
+        if (end <= pos) return -1; /* even the next piece does not fit */
+        void *p = heap_caps_malloc(end - pos + 4, MALLOC_CAP_EXEC);
+        if (!p) return -1;
+        img->part[img->nparts] = p;
+        img->part_off[img->nparts] = pos;
+        img->nparts++;
+        img->part_off[img->nparts] = end;
+        pos = end;
+    }
+    return 0;
+}
+
 void cpos_unload(cpos_image_t *img) {
-    if (img->code) heap_caps_free(img->code);
+    for (int i = 0; i < img->nparts; i++) heap_caps_free(img->part[i]);
     if (img->data) heap_caps_free(img->data);
     memset(img, 0, sizeof(*img));
 }
@@ -142,8 +222,8 @@ int cpos_load(const char *path, cpos_image_t *img, const char **err) {
     if (img->header.abi_minor > CPOS_ABI_MINOR) { *err = "app needs a newer OS"; goto out; }
 
     img->code_size = (code_ph.p_memsz + 3) & ~3u;
-    img->code = heap_caps_malloc(img->code_size + 4, MALLOC_CAP_EXEC);
-    if (!img->code) { *err = "not enough executable RAM"; goto out; }
+    if (alloc_code(f, &eh, img)) { *err = "not enough executable RAM"; goto out; }
+    img->code = img->part[0];
     if (have_data && data_ph.p_memsz) {
         img->data_size = (data_ph.p_memsz + 3) & ~3u;
         img->data = heap_caps_calloc(1, img->data_size, MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL);
@@ -154,11 +234,12 @@ int cpos_load(const char *path, cpos_image_t *img, const char **err) {
     if (!tmp) { *err = "out of memory"; goto out; }
 
     /* code: file bytes, then zero the rest */
-    for (size_t o = 0; o < img->code_size; o += 4) ((volatile uint32_t *)img->code)[o / 4] = 0;
+    for (int i = 0; i < img->nparts; i++)
+        for (size_t o = 0; o < img->part_off[i + 1] - img->part_off[i]; o += 4) ((volatile uint32_t *)img->part[i])[o / 4] = 0;
     for (size_t o = 0; o < code_ph.p_filesz; o += 1024) {
         size_t n = code_ph.p_filesz - o < 1024 ? code_ph.p_filesz - o : 1024;
         if (rd(f, code_ph.p_offset + o, tmp, n)) { *err = "short read (code)"; goto out; }
-        write_code(img->code, o, tmp, n);
+        write_code(img, o, tmp, n);
     }
     if (img->data) {
         for (size_t o = 0; o < data_ph.p_filesz; o += 1024) {
@@ -169,7 +250,6 @@ int cpos_load(const char *path, cpos_image_t *img, const char **err) {
     }
 
     /* relocations: only absolute 32-bit words matter */
-    uint32_t code_off = (uint32_t)img->code - code_ph.p_vaddr;
     uint32_t data_off = img->data ? (uint32_t)img->data - data_ph.p_vaddr : 0;
     uint32_t nreloc = 0;
     uint32_t rbuf[255 * 3]; /* 255 entries of 12 bytes */
@@ -188,12 +268,12 @@ int cpos_load(const char *path, cpos_image_t *img, const char **err) {
                 uint32_t where = r.r_offset;
                 uint32_t *p;
                 if (where >= code_ph.p_vaddr && where + 4 <= code_ph.p_vaddr + code_ph.p_memsz)
-                    p = (uint32_t *)((uint8_t *)img->code + (where - code_ph.p_vaddr));
+                    p = (uint32_t *)code_at(img, where - code_ph.p_vaddr);
                 else if (img->data && where >= data_ph.p_vaddr && where + 4 <= data_ph.p_vaddr + data_ph.p_memsz)
                     p = (uint32_t *)((uint8_t *)img->data + (where - data_ph.p_vaddr));
                 else continue; /* debug sections etc. */
                 uint32_t v = *(volatile uint32_t *)p;
-                if (v >= code_ph.p_vaddr && v < code_ph.p_vaddr + code_ph.p_memsz + 4) v += code_off;
+                if (v >= code_ph.p_vaddr && v < code_ph.p_vaddr + code_ph.p_memsz + 4) v = (uint32_t)code_at(img, v - code_ph.p_vaddr);
                 else if (img->data && v >= data_ph.p_vaddr && v < data_ph.p_vaddr + data_ph.p_memsz + 4) v += data_off;
                 else continue; /* not an address into the image */
                 *(volatile uint32_t *)p = v;
@@ -212,12 +292,12 @@ int cpos_load(const char *path, cpos_image_t *img, const char **err) {
     }
     img->header = *hp;
     img->entry = hp->entry;
-    if ((uint32_t)img->entry < (uint32_t)img->code || (uint32_t)img->entry >= (uint32_t)img->code + img->code_size) {
+    if (part_of(img, (uint32_t)img->entry) < 0) {
         *err = "entry point outside code";
         goto out;
     }
-    ESP_LOGI(TAG, "%s v%s: code %uB data %uB, %u relocs, entry %p", img->header.name, img->header.version,
-             (unsigned)img->code_size, (unsigned)img->data_size, (unsigned)nreloc, img->entry);
+    ESP_LOGI(TAG, "%s v%s: code %uB in %d part(s) data %uB, %u relocs, entry %p", img->header.name, img->header.version,
+             (unsigned)img->code_size, img->nparts, (unsigned)img->data_size, (unsigned)nreloc, img->entry);
     rc = 0;
 out:
     free(tmp);

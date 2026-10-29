@@ -41,7 +41,21 @@ int cpos_run_app(const char *path, const char **err) {
     if (!err) err = &e0;
     app_ctx_t *a = heap_caps_calloc(1, sizeof(*a), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     if (!a) { *err = "out of memory"; return -1; }
-    if (cpos_load(path, &a->img, err)) { free(a); return -1; }
+    cpos_app_header_t hdr;
+    const char *herr = NULL;
+    if (cpos_read_header(path, &hdr, &herr) == 0 && !(hdr.perms & CPOS_PERM_WIFI)) {
+        /* an app without the wifi permission gets the WiFi driver's RAM: the radio goes off */
+        for (int i = 0; i < 300 && cpos_net_background_busy(); i++) vTaskDelay(pdMS_TO_TICKS(50));
+        cpos_wifi_stop();
+    }
+    if (cpos_load(path, &a->img, err)) {
+        /* not enough room while the caller's buffers are held: release them and try once more */
+        if (!cpos_before_app_start) { free(a); return -1; }
+        cpos_before_app_start();
+        cpos_before_app_start = NULL;
+        gfx_drop_spare();
+        if (cpos_load(path, &a->img, err)) { free(a); return -1; }
+    }
     /* the caller's big buffers go only now, so the loaded image does not land in (and split) them */
     if (cpos_before_app_start) cpos_before_app_start();
     a->perms = a->img.header.perms;
@@ -76,6 +90,7 @@ int cpos_run_app(const char *path, const char **err) {
             esp_restart();
         }
     }
+    cpos_app_stop_tasks(a); /* before anything the tasks may use is released */
     int res = a->result;
     ESP_LOGI(TAG, "%s ended (%d)", a->img.header.name, res);
     cpos_app_release(a);

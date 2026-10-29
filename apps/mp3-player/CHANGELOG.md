@@ -1,5 +1,10 @@
 # Changelog — MP3 Player
 
+## [0.2.1]
+- Versión para CardputerOS 0.3.0: el decodificador MP3 y las tapas JPEG corren en el
+  sistema, y la app se puede cargar en partes cuando la memoria está fragmentada.
+- Las tapas en PNG no se muestran (solo JPEG).
+
 ## [0.2.0]
 - Menús estilo iPod: Playlists, Artists, Albums, Songs, Shuffle Songs y Settings.
 - Biblioteca armada con los tags ID3 (v2.2/2.3/2.4, Latin-1/UTF-8/UTF-16), con

@@ -172,6 +172,7 @@ int ui_menu(const char *title, ui_item_t *items, int n, int sel, const char *hin
 
 /* ---- WiFi ------------------------------------------------------------------------------ */
 static void wifi_screen(void) {
+    ui_wait_background_net();
     ui_status("Scanning...", "WiFi networks");
     static cpos_scan_t aps[20];
     int n = cpos_wifi_scan_blocking(aps, 20);
@@ -231,7 +232,7 @@ static void scan_apps(void) {
 }
 
 static void release_canvas(void) {
-    gfx_destroy(ui_cv);
+    gfx_keep_spare(ui_cv);
     ui_cv = NULL;
 }
 
@@ -245,6 +246,7 @@ static void run_app(const app_entry_t *a) {
     int rc = cpos_run_app(a->path, &err);
     cpos_before_app_start = NULL;
     if (!ui_cv) ui_cv = gfx_create(CPOS_SCREEN_W, CPOS_SCREEN_H, 16);
+    cpos_net_background_connect(); /* the app may have had the radio off */
     if (rc < 0 && err) {
         char m[96];
         snprintf(m, sizeof(m), "%s: %s", a->name, err);
@@ -295,7 +297,7 @@ static void display_screen(void) {
 static void system_screen(void) {
     char latest[16] = "";
     const esp_app_desc_t *d = esp_app_get_description();
-    ui_item_t it[8];
+    ui_item_t it[10];
     int n = 0;
     snprintf(it[n].left, 48, "OS version"); snprintf(it[n].right, 24, "%.20s", d->version); it[n].color = 0; n++;
     snprintf(it[n].left, 48, "Free heap"); snprintf(it[n].right, 24, "%u KB", (unsigned)(esp_get_free_heap_size() / 1024)); it[n].color = 0; n++;
@@ -303,6 +305,8 @@ static void system_screen(void) {
     snprintf(it[n].left, 48, "App repo"); snprintf(it[n].right, 24, "%.22s", store_repo()); it[n].color = 0; n++;
     snprintf(it[n].left, 48, "Change app repo..."); it[n].right[0] = 0; it[n].color = C_ACC; n++;
     snprintf(it[n].left, 48, "Display setup..."); it[n].right[0] = 0; it[n].color = C_ACC; n++;
+    int tz_item = n;
+    snprintf(it[n].left, 48, "Time zone..."); snprintf(it[n].right, 24, "UTC%+d", cpos_time_offset()); it[n].color = C_ACC; n++;
     snprintf(it[n].left, 48, "Reboot"); it[n].right[0] = 0; it[n].color = C_ACC; n++;
     for (;;) {
         int s = ui_menu("System", it, n, 0, NULL);
@@ -313,15 +317,32 @@ static void system_screen(void) {
             snprintf(it[3].right, 24, "%.22s", store_repo());
         } else if (s == 5) {
             display_screen();
-        } else if (s == 6) {
+        } else if (s == tz_item) {
+            char b[8];
+            snprintf(b, sizeof(b), "%d", cpos_time_offset());
+            if (ui_input("Hours from UTC (Argentina: -3)", b, sizeof(b), 0)) {
+                int h = atoi(b);
+                if (h >= -12 && h <= 14) cpos_time_set_offset(h);
+            }
+            snprintf(it[tz_item].right, 24, "UTC%+d", cpos_time_offset());
+        } else if (s == n - 1) {
             esp_restart();
         } else if (s < 0) break;
     }
     (void)latest;
 }
 
+/* a manual WiFi action waits for the boot/background connect to finish first */
+void ui_wait_background_net(void) {
+    if (!cpos_net_background_busy()) return;
+    ui_status("Connecting...", "using the saved WiFi");
+    while (cpos_net_background_busy()) vTaskDelay(pdMS_TO_TICKS(100));
+}
+
 void cpos_ui_run(void) {
     ui_cv = gfx_create(CPOS_SCREEN_W, CPOS_SCREEN_H, 16);
+    cpos_time_set_offset(cpos_time_offset());
+    cpos_net_background_connect();
     char crash[96];
     cpos_boot_check(crash, sizeof(crash));
     if (crash[0]) ui_message("Previous app", crash);

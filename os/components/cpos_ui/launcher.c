@@ -4,6 +4,7 @@
 #include "hal.h"
 #include "esp_timer.h"
 #include <string.h>
+#include <time.h>
 
 #define C_BG gfx_rgb(12, 14, 22)
 #define C_TXT 0xFFFF
@@ -87,10 +88,17 @@ static void draw_status(void) {
     uint16_t wc = cpos_wifi_is_connected() ? C_INK : gfx_rgb(160, 156, 70);
     for (int i = 0; i < 3; i++) G.arc(ui_cv, 50, 16, 9 - i * 3 - 1, 9 - i * 3, 225, 315, wc, 1);
     G.circle(ui_cv, 50, 15, 1, wc, 1);
-    /* uptime, the board has no clock */
-    int64_t m = esp_timer_get_time() / 60000000;
+    /* local time once it was fetched from the network; until then, time since power on */
     char t[12];
-    snprintf(t, sizeof(t), "%02d:%02d", (int)(m / 60 % 100), (int)(m % 60));
+    if (cpos_time_valid()) {
+        time_t now = time(NULL);
+        struct tm tm;
+        localtime_r(&now, &tm);
+        strftime(t, sizeof(t), "%H:%M", &tm);
+    } else {
+        int64_t m = esp_timer_get_time() / 60000000;
+        snprintf(t, sizeof(t), "%02d:%02d", (int)(m / 60 % 100), (int)(m % 60));
+    }
     gfx_set_font(ui_cv, CPOS_FONT_JP12);
     gfx_set_text_datum(ui_cv, 5);
     gfx_set_text_color(ui_cv, C_INK, 0, 0);
@@ -144,8 +152,15 @@ static void draw(const launcher_item_t *items, int n, int sel, float anim, const
         gfx_set_text_color(ui_cv, C_TXT, 0, 0);
         gfx_draw_string(ui_cv, it->name, CX, 102);
         gfx_set_font(ui_cv, CPOS_FONT_JP12);
-        gfx_set_text_color(ui_cv, it->sub_color ? it->sub_color : C_DIM, 0, 0);
-        gfx_draw_string(ui_cv, it->sub, CX, 118);
+        const char *sub = it->sub;
+        uint16_t sc = it->sub_color ? it->sub_color : C_DIM;
+        if (it->kind == LI_WIFI) { /* live: the connection comes up in the background */
+            int on = cpos_wifi_is_connected();
+            sub = on ? "connected" : cpos_net_background_busy() ? "connecting..." : "not connected";
+            sc = on ? gfx_rgb(80, 220, 120) : C_DIM;
+        }
+        gfx_set_text_color(ui_cv, sc, 0, 0);
+        gfx_draw_string(ui_cv, sub, CX, 118);
     }
     /* position */
     if (n <= 14) {
@@ -186,7 +201,7 @@ int ui_launcher(const launcher_item_t *items, int n, int sel) {
         }
         /* idle: redraw only when something on screen changed */
         hal_kbd_get(&k);
-        int64_t min = esp_timer_get_time() / 60000000;
+        int64_t min = cpos_time_valid() ? time(NULL) / 60 : esp_timer_get_time() / 60000000;
         int wifi = cpos_wifi_is_connected();
         if (k.shift != shown.shift || k.fn != shown.fn || k.ctrl != shown.ctrl || k.opt != shown.opt ||
             k.alt != shown.alt || min != shown_min || wifi != shown_wifi) {

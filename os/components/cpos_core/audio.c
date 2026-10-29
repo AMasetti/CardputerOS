@@ -33,6 +33,12 @@ typedef struct {
     size_t rawlen;
     float rpos, rstep;
     int repeat, stereo;
+    /* one queued buffer, started without a gap when the current one ends (M5 playRaw queue) */
+    const int16_t *nraw;
+    size_t nrawlen;
+    float nrstep;
+    int nstereo;
+    volatile int has_next;
 } voice_t;
 
 static voice_t s_v[VOICES];
@@ -102,9 +108,17 @@ static void mix(int16_t *out, int frames) {
                 size_t p = (size_t)v->rpos;
                 if (p >= v->rawlen) {
                     if (v->repeat > 1) { v->repeat--; v->rpos = 0; p = 0; }
-                    else { v->on = 0; break; }
+                    else if (v->has_next) {
+                        v->raw = v->nraw;
+                        v->rawlen = v->nrawlen;
+                        v->rstep = v->nrstep;
+                        v->stereo = v->nstereo;
+                        v->has_next = 0;
+                        v->rpos = 0;
+                        p = 0;
+                    } else { v->on = 0; break; }
                 }
-                s = v->raw[v->stereo ? p * 2 : p] / 32768.0f;
+                s = (v->stereo ? (v->raw[p * 2] + v->raw[p * 2 + 1]) * 0.5f : v->raw[p]) / 32768.0f;
                 v->rpos += v->rstep;
             } else {
                 if (v->remain == 0) { v->on = 0; break; }
@@ -211,19 +225,28 @@ static void au_raw(const int16_t *s, size_t n, uint32_t rate, int stereo, int re
     nv.stereo = stereo;
     nv.on = 1;
     taskENTER_CRITICAL(&s_mux);
-    *v = nv;
+    if (ch >= 0 && !stop && v->on && v->raw && !v->has_next) {
+        /* busy channel: queue it behind the current buffer */
+        v->nraw = nv.raw;
+        v->nrawlen = nv.rawlen;
+        v->nrstep = nv.rstep;
+        v->nstereo = nv.stereo;
+        v->has_next = 1;
+    } else {
+        *v = nv;
+    }
     taskEXIT_CRITICAL(&s_mux);
 }
 
 static int au_playing(int ch) {
-    if (ch >= 0 && ch < VOICES) return s_v[ch].on;
+    if (ch >= 0 && ch < VOICES) return s_v[ch].on ? 1 + s_v[ch].has_next : 0; /* 2 = one more queued */
     return any_active();
 }
 
 static void au_stop(int ch) {
     taskENTER_CRITICAL(&s_mux);
-    if (ch >= 0 && ch < VOICES) s_v[ch].on = 0;
-    else for (int k = 0; k < VOICES; k++) s_v[k].on = 0;
+    if (ch >= 0 && ch < VOICES) s_v[ch].on = s_v[ch].has_next = 0;
+    else for (int k = 0; k < VOICES; k++) s_v[k].on = s_v[k].has_next = 0;
     taskEXIT_CRITICAL(&s_mux);
 }
 
