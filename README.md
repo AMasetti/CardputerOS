@@ -4,12 +4,12 @@
 
 <p align="center">
   <a href="https://github.com/AMasetti/CardputerOS/actions/workflows/build.yml"><img src="https://github.com/AMasetti/CardputerOS/actions/workflows/build.yml/badge.svg" alt="build"></a>
-  <a href="https://github.com/AMasetti/CardputerOS/releases/latest"><img src="https://img.shields.io/github/v/release/AMasetti/CardputerOS?color=ff8c28&label=release" alt="latest release"></a>
+  <a href="https://github.com/AMasetti/CardputerOS/releases/latest"><img src="https://img.shields.io/github/v/release/AMasetti/CardputerOS?color=40e4ff&label=release" alt="latest release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache-2.0"></a>
   <img src="https://img.shields.io/badge/ESP--IDF-5.4-red" alt="ESP-IDF 5.4">
   <img src="https://img.shields.io/badge/chip-ESP32--S3-orange" alt="ESP32-S3">
   <img src="https://img.shields.io/badge/device-M5Stack%20Cardputer%20ADV-1b2030" alt="M5Stack Cardputer ADV">
-  <a href="https://github.com/AMasetti/CardputerOS/stargazers"><img src="https://img.shields.io/github/stars/AMasetti/CardputerOS?style=flat&color=ffb347" alt="stars"></a>
+  <a href="https://github.com/AMasetti/CardputerOS/stargazers"><img src="https://img.shields.io/github/stars/AMasetti/CardputerOS?style=flat&color=40e4ff" alt="stars"></a>
 </p>
 
 <p align="center">
