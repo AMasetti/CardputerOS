@@ -60,7 +60,7 @@ Install any of these from the on-device store (or copy the `.elf` to `/apps/` on
 | [`led-rc`](apps/led-rc) | Infrared remote for generic RGB LED strips (24 and 44 key remotes) |
 | [`tv-b-gone`](apps/tv-b-gone) | Turns TVs off over infrared |
 | [`tuner`](apps/tuner) | Microphone tuner with cents meter and guitar/bass tunings |
-| [`compass`](apps/compass) | IMU compass with a 3D wind-rose view |
+| [`compass`](apps/compass) | IMU compass with a 3D wind-rose view; with the Cap LoRa-1262, GPS speed/altitude/satellites and bearing and distance to saved points and Meshtastic nodes |
 | [`karting`](apps/karting) | GPS-less kart telemetry from the IMU: laps and g-forces |
 | [`snake`](apps/snake), [`tetrix`](apps/tetrix) | Classic games, built for the 240x135 screen |
 | [`ekoparty-badge`](apps/ekoparty-badge) | Conference badge with a QR code |

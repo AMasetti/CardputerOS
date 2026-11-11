@@ -7,19 +7,31 @@
 // de Mahony), así que la orientación en 3D no deriva; el rumbo sí deriva un
 // poco con el tiempo y conviene volver a fijarlo de vez en cuando.
 //
-//   tab  m        vista 3D / 2D
+// Con el Cap LoRa-1262 usa además el GPS: velocidad, altitud y satélites en pantalla, y la vista
+// Destino, que apunta y mide la distancia a un punto guardado o a un nodo Meshtastic con posición
+// (los que la app Meshtastic guarda en la SD).
+//
+//   tab  m        vista 3D / 2D / Destino
 //   enter         fijar el norte hacia donde apunta el Cardputer
 //   ,  /          girar el norte 5° a la izquierda / derecha
+//   ;  .          Destino: destino anterior / siguiente
+//   p             guardar la posición actual como punto
+//   del           Destino: borrar el punto elegido (los nodos no se borran)
 //   c             recalibrar el giróscopo (dejalo quieto)
 //   x             cambiar la orientación del sensor si los ejes no coinciden
 //
-// La vista y la orientación del sensor se guardan en la flash (NVS).
+// La vista y la orientación del sensor se guardan en la flash (NVS). Los puntos van a la SD en
+// /compass/points.csv ("nombre,latitud,longitud" por línea), que también se puede editar en la PC.
 
 #include <cpos_intent.h>
 #include <M5Cardputer.h>
 #include <Preferences.h>
 #include <math.h>
+#include <sys/stat.h>
 #include <algorithm>
+#include "gnss.h"      // lector NMEA compartido con Meshtastic (apps/meshtastic/src)
+#include "mesh_core.h" // Node: formato de /meshtastic/nodes.bin
+#include "nav.h"
 
 #ifndef APP_VERSION
 #define APP_VERSION "dev"
@@ -78,7 +90,7 @@ static Mat rotation()
 }
 
 // --- Estado ---------------------------------------------------------------------
-enum class View : uint8_t { ThreeD, TwoD };
+enum class View : uint8_t { ThreeD, TwoD, Target };
 
 static Preferences prefs;
 static View view = View::ThreeD;
@@ -132,6 +144,115 @@ static void savePrefs()
 {
     prefs.putUChar("view", (uint8_t)view);
     prefs.putUChar("axis", axisMap);
+}
+
+// --- Destinos: puntos guardados y nodos Meshtastic -----------------------------------------
+static constexpr int MAX_TARGETS = 64;
+static Target targets[MAX_TARGETS];
+static int nTargets = 0, nPoints = 0; // primero los puntos, después los nodos
+static int sel = 0;
+static uint32_t targetsLoadedAt = 0;
+static const char *POINTS_FILE = "/sdcard/compass/points.csv";
+static const char *NODES_FILE = "/sdcard/meshtastic/nodes.bin";
+
+static void loadTargets()
+{
+    nTargets = nPoints = 0;
+    FILE *f = fopen(POINTS_FILE, "rb");
+    if (f) {
+        static char text[3072];
+        size_t n = fread(text, 1, sizeof(text) - 1, f);
+        text[n] = 0;
+        fclose(f);
+        nPoints = nTargets = nav_parse_points(text, targets, MAX_TARGETS);
+    }
+    // nodos con posición que oyó la app Meshtastic (mismo formato que su nodes.bin)
+    f = fopen(NODES_FILE, "rb");
+    if (f) {
+        uint32_t h[3] = {0};
+        if (fread(h, sizeof(h), 1, f) == 1 && h[0] == 0x4D534831 && h[1] == sizeof(mesh::Node)) {
+            mesh::Node nd;
+            for (uint32_t i = 0; i < h[2] && nTargets < MAX_TARGETS && fread(&nd, sizeof(nd), 1, f) == 1; ++i) {
+                if (!nd.pos.has_pos) continue;
+                Target &t = targets[nTargets++];
+                memset(&t, 0, sizeof(t));
+                if (nd.has_user && nd.user.long_name[0]) snprintf(t.name, sizeof(t.name), "%.23s", nd.user.long_name);
+                else snprintf(t.name, sizeof(t.name), "!%08x", (unsigned)nd.num);
+                t.lat = nd.pos.latitude_i;
+                t.lon = nd.pos.longitude_i;
+                t.kind = TARGET_NODE;
+                t.precision = nd.pos.precision_bits ? (uint8_t)nd.pos.precision_bits : 32;
+            }
+        }
+        fclose(f);
+    }
+    if (sel >= nTargets) sel = nTargets ? nTargets - 1 : 0;
+    targetsLoadedAt = millis();
+}
+
+static bool savePoints()
+{
+    mkdir("/sdcard/compass", 0777);
+    FILE *f = fopen(POINTS_FILE, "wb");
+    if (!f) return false;
+    fputs("# nombre,latitud,longitud\n", f);
+    char line[96];
+    for (int i = 0; i < nPoints; ++i) {
+        nav_format_point(targets[i], line, sizeof(line));
+        fputs(line, f);
+    }
+    fclose(f);
+    return true;
+}
+
+static void addPoint()
+{
+    if (!G.fix) { showToast("Sin posición GPS todavía"); return; }
+    if (nPoints >= MAX_TARGETS) { showToast("No entran más puntos"); return; }
+    // los puntos van antes que los nodos
+    memmove(&targets[nPoints + 1], &targets[nPoints], sizeof(Target) * (nTargets - nPoints - (nTargets == MAX_TARGETS)));
+    Target &t = targets[nPoints];
+    memset(&t, 0, sizeof(t));
+    snprintf(t.name, sizeof(t.name), "Punto %d", nPoints + 1);
+    t.lat = G.lat;
+    t.lon = G.lon;
+    t.kind = TARGET_POINT;
+    t.precision = 32;
+    ++nPoints;
+    if (nTargets < MAX_TARGETS) ++nTargets;
+    sel = nPoints - 1;
+    char buf[48];
+    snprintf(buf, sizeof(buf), savePoints() ? "Guardado: %s" : "%s (sin SD: no se guarda)", t.name);
+    showToast(buf);
+}
+
+static void deletePoint()
+{
+    if (sel >= nPoints) { showToast("Los nodos no se borran desde acá"); return; }
+    char buf[48];
+    snprintf(buf, sizeof(buf), "Borrado: %s", targets[sel].name);
+    memmove(&targets[sel], &targets[sel + 1], sizeof(Target) * (nTargets - sel - 1));
+    --nPoints;
+    --nTargets;
+    if (sel >= nTargets && sel) --sel;
+    savePoints();
+    showToast(buf);
+}
+
+static void cycleView()
+{
+    view = view == View::ThreeD ? View::TwoD : view == View::TwoD ? View::Target : View::ThreeD;
+    if (view == View::Target) loadTargets();
+    savePrefs();
+}
+
+// línea de GPS para el pie: satélites, velocidad, altitud
+static bool gpsLine(char *buf, size_t n)
+{
+    if (!G.up) return false;
+    if (!G.fix) snprintf(buf, n, "GPS buscando · %u sat", G.sats);
+    else snprintf(buf, n, "%u sat · %.0f km/h · %d m", G.sats, G.speed_kmh, (int)G.alt);
+    return true;
 }
 
 // --- Sensor -----------------------------------------------------------------------
@@ -411,6 +532,15 @@ static void render2d()
     spr.fillTriangle(sx, sy, lx, ly, rx, ry, lgfx::color565(200, 205, 215));
     spr.fillCircle(cx, cy, 3, C_TEXT);
 
+    // Destino elegido: un rombo verde sobre el anillo.
+    if (G.fix && nTargets) {
+        float b = nav_bearing_deg(G.lat, G.lon, targets[sel].lat, targets[sel].lon) * RAD;
+        int tx, ty;
+        at(b, r - 5, tx, ty);
+        spr.fillTriangle(tx, ty - 5, tx - 4, ty, tx + 4, ty, C_GREEN);
+        spr.fillTriangle(tx, ty + 5, tx - 4, ty, tx + 4, ty, C_GREEN);
+    }
+
     // Marca fija arriba: hacia dónde apuntás.
     spr.fillTriangle(cx, cy - r + 6, cx - 6, cy - r - 5, cx + 6, cy - r - 5, C_ACCENT);
 
@@ -429,7 +559,7 @@ static void render2d()
     spr.drawString(CARDINAL[(int)lroundf(h * DEG / 22.5f) % 16], 186, 56);
 
     // Nivel de burbuja: la burbuja va al lado más alto.
-    const int bx = 186, by = 98, br = 24;
+    const int bx = 186, by = 88, br = 20; // deja lugar abajo para el GPS
     float ux = R.m[2][0], uy = R.m[2][1];
     float tilt = acosf(std::max(-1.0f, std::min(1.0f, R.m[2][2]))) * DEG;
     bool level = tilt < 2.0f;
@@ -449,6 +579,104 @@ static void render2d()
     spr.setTextDatum(textdatum_t::middle_left);
     snprintf(buf, sizeof(buf), "%d°", (int)lroundf(tilt));
     spr.drawString(buf, bx + br + 3, by + br - 4);
+}
+
+// --- Vista Destino -------------------------------------------------------------------------
+static void renderTarget()
+{
+    spr.setTextDatum(textdatum_t::top_left);
+    if (!nTargets) {
+        spr.setFont(&fonts::lgfxJapanGothicP_16);
+        spr.setTextColor(C_TEXT);
+        spr.setTextDatum(textdatum_t::middle_center);
+        spr.drawString("Sin destinos", 120, 40);
+        spr.setFont(&fonts::lgfxJapanGothicP_12);
+        spr.setTextColor(C_DIM);
+        spr.drawString("p: guardar la posición actual", 120, 64);
+        spr.drawString("Los nodos con posición vienen de la app Meshtastic", 120, 80);
+        return;
+    }
+    const Target &t = targets[sel];
+    char buf[48];
+
+    // título: tipo, nombre y cuál de cuántos
+    spr.setFont(&fonts::lgfxJapanGothicP_16);
+    spr.setTextColor(t.kind == TARGET_NODE ? C_GREEN : C_ACCENT);
+    spr.drawString(t.kind == TARGET_NODE ? "Nodo" : "Punto", 4, 3);
+    int x = 4 + spr.textWidth(t.kind == TARGET_NODE ? "Nodo" : "Punto") + 6;
+    spr.setTextColor(C_TEXT);
+    spr.drawString(t.name, x, 3);
+    spr.setFont(&fonts::lgfxJapanGothicP_12);
+    spr.setTextColor(C_DIM);
+    spr.setTextDatum(textdatum_t::top_right);
+    snprintf(buf, sizeof(buf), "%d/%d", sel + 1, nTargets);
+    spr.drawString(buf, 236, 5);
+
+    // flecha: hacia dónde ir respecto de hacia dónde apunta el Cardputer
+    const int cx = 62, cy = 74, r = 46;
+    spr.fillCircle(cx, cy, r, C_PANEL);
+    spr.drawCircle(cx, cy, r, C_DIM);
+    spr.fillTriangle(cx, cy - r + 1, cx - 5, cy - r - 6, cx + 5, cy - r - 6, C_ACCENT); // hacia dónde apuntás
+    if (!G.fix) {
+        spr.setFont(&fonts::lgfxJapanGothicP_12);
+        spr.setTextDatum(textdatum_t::middle_center);
+        spr.setTextColor(C_YELLOW);
+        spr.drawString(G.up ? "sin GPS" : "sin módulo", cx, cy);
+        spr.drawString("GPS", cx, cy + 14);
+        return;
+    }
+    double dist = nav_distance_m(G.lat, G.lon, t.lat, t.lon);
+    double brg = nav_bearing_deg(G.lat, G.lon, t.lat, t.lon);
+    double unc = nav_precision_m(t.precision);
+    float rel = (float)brg * RAD - heading;
+    float sa = sinf(rel), ca = cosf(rel);
+    auto pt = [&](float fx, float fy, int &px, int &py) { // fx a la derecha, fy hacia adelante
+        px = cx + (int)lroundf(fx * ca + fy * sa);
+        py = cy - (int)lroundf(-fx * sa + fy * ca);
+    };
+    uint16_t col = !northSet ? C_YELLOW : (dist <= unc + 10 ? C_GREEN : C_RED);
+    int ax, ay, bx, by, cx2, cy2, dx, dy;
+    pt(0, r - 8, ax, ay);
+    pt(-14, 4, bx, by);
+    pt(14, 4, cx2, cy2);
+    spr.fillTriangle(ax, ay, bx, by, cx2, cy2, col);
+    pt(-5, 4, bx, by);
+    pt(5, -(r - 14), dx, dy);
+    pt(5, 4, cx2, cy2);
+    int ex, ey;
+    pt(-5, -(r - 14), ex, ey);
+    spr.fillTriangle(bx, by, cx2, cy2, dx, dy, col);
+    spr.fillTriangle(bx, by, dx, dy, ex, ey, col);
+
+    // distancia y rumbo
+    spr.setTextDatum(textdatum_t::top_left);
+    spr.setFont(&fonts::DejaVu24);
+    spr.setTextColor(C_TEXT);
+    nav_format_distance(dist, buf, sizeof(buf));
+    spr.drawString(buf, 122, 28);
+    spr.setFont(&fonts::lgfxJapanGothicP_12);
+    spr.setTextColor(C_DIM);
+    if (unc > 0) {
+        char u[16];
+        nav_format_distance(unc, u, sizeof(u));
+        snprintf(buf, sizeof(buf), "posición aprox. ±%s", u);
+        spr.drawString(buf, 122, 56);
+    }
+    spr.setFont(&fonts::lgfxJapanGothicP_16);
+    spr.setTextColor(C_ACCENT);
+    snprintf(buf, sizeof(buf), "%d° %s", (int)lround(brg) % 360, CARDINAL[(int)lround(brg / 22.5) % 16]);
+    spr.drawString(buf, 122, 74);
+    spr.setFont(&fonts::lgfxJapanGothicP_12);
+    spr.setTextColor(C_DIM);
+    if (!northSet) {
+        spr.setTextColor(C_YELLOW);
+        spr.drawString("fijá el norte para la flecha", 122, 96);
+    } else {
+        int turn = (int)lroundf(fmodf(rel * DEG + 540.0f, 360.0f) - 180.0f);
+        if (abs(turn) <= 5) snprintf(buf, sizeof(buf), "derecho adelante");
+        else snprintf(buf, sizeof(buf), "girá %d° a la %s", abs(turn), turn > 0 ? "derecha" : "izquierda");
+        spr.drawString(buf, 122, 96);
+    }
 }
 
 // --- Pantalla ----------------------------------------------------------------------------
@@ -476,16 +704,31 @@ static void render()
         renderCalibration();
     } else {
         if (view == View::ThreeD) render3d();
-        else render2d();
+        else if (view == View::TwoD) render2d();
+        else renderTarget();
 
         spr.setFont(&fonts::lgfxJapanGothicP_12);
         spr.setTextDatum(textdatum_t::bottom_left);
+        char gps[40];
         if (millis() < toastUntil) {
             spr.setTextColor(C_ACCENT);
             spr.drawString(toast, 4, 134);
-        } else if (!northSet) {
+        } else if (!northSet && view != View::Target) {
             spr.setTextColor(C_YELLOW);
             spr.drawString("Apuntá al norte y apretá enter", 4, 134);
+        } else if (view == View::TwoD && G.up) {
+            // en 2D la rosa ocupa la izquierda: el GPS va en dos líneas a la derecha
+            spr.setTextDatum(textdatum_t::bottom_right);
+            spr.setTextColor(G.fix ? C_GREEN : C_DIM);
+            if (G.fix) {
+                snprintf(gps, sizeof(gps), "%.0f km/h · %d m", G.speed_kmh, (int)G.alt);
+                spr.drawString(gps, 236, 134);
+            }
+            snprintf(gps, sizeof(gps), G.fix ? "%u sat" : "GPS · %u sat", G.sats);
+            spr.drawString(gps, 236, G.fix ? 121 : 134);
+        } else if (gpsLine(gps, sizeof(gps))) {
+            spr.setTextColor(G.fix ? C_GREEN : C_DIM);
+            spr.drawString(gps, 4, 134);
         } else if (view == View::ThreeD) {
             spr.setTextColor(C_DIM);
             spr.drawString("tab: 2D   enter: fijar norte", 4, 134);
@@ -500,8 +743,11 @@ static void handleKeys()
     if (!M5Cardputer.Keyboard.isChange() || !M5Cardputer.Keyboard.isPressed()) return;
     auto st = M5Cardputer.Keyboard.keysState();
     if (st.tab) {
-        view = view == View::ThreeD ? View::TwoD : View::ThreeD;
-        savePrefs();
+        cycleView();
+        return;
+    }
+    if (st.del && view == View::Target && nTargets) {
+        deletePoint();
         return;
     }
     if (st.enter && !calibrating) {
@@ -514,8 +760,17 @@ static void handleKeys()
         switch (c) {
         case 'm':
         case 'M':
-            view = view == View::ThreeD ? View::TwoD : View::ThreeD;
-            savePrefs();
+            cycleView();
+            break;
+        case ';':
+            if (nTargets) sel = (sel + nTargets - 1) % nTargets;
+            break;
+        case '.':
+            if (nTargets) sel = (sel + 1) % nTargets;
+            break;
+        case 'p':
+        case 'P':
+            addPoint();
             break;
         case ',':
             northOffset = wrap(northOffset - 5 * RAD);
@@ -549,13 +804,15 @@ void setup()
     M5Cardputer.Display.setRotation(1);
 
     prefs.begin("compass", false);
-    view = (View)std::min<uint8_t>(prefs.getUChar("view", 0), 1);
+    view = (View)std::min<uint8_t>(prefs.getUChar("view", 0), 2);
     axisMap = prefs.getUChar("axis", 0) % 8;
 
     spr.setColorDepth(16);
     spr.createSprite(240, 135);
     R = rotation();
     startCalibration();
+    G.up = cpos_api->lora.gnss_begin(115200) == 0; // sin el Cap LoRa-1262 sigue sin GPS
+    loadTargets();
 }
 
 void loop()
@@ -563,6 +820,8 @@ void loop()
     M5Cardputer.update();
     handleKeys();
     readImu();
+    pollGnss();
+    if (view == View::Target && millis() - targetsLoadedAt > 30000) loadTargets(); // nodos nuevos de Meshtastic
 
     static uint32_t lastDraw = 0;
     if (millis() - lastDraw >= 33) {

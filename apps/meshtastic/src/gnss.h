@@ -9,6 +9,9 @@ struct Gnss {
     bool up = false, fix = false;
     int32_t lat = 0, lon = 0; // grados * 1e7
     int32_t alt = 0;
+    float speed_kmh = 0;      // velocidad sobre el suelo
+    float course = -1;        // rumbo de marcha (° desde el norte verdadero), -1 sin dato
+    float hdop = 0;
     uint8_t sats = 0;
     uint32_t unix = 0, unix_at = 0; // hora UTC y millis() en que se leyó
     uint32_t fix_at = 0;
@@ -57,6 +60,8 @@ static void nmeaLine(char *s) {
     if (!strcmp(type, "RMC") && nf >= 10) {
         bool valid = f[2][0] == 'A';
         if (valid) {
+            G.speed_kmh = f[7][0] ? (float)atof(f[7]) * 1.852f : 0; // nudos
+            G.course = f[8][0] ? (float)atof(f[8]) : -1;
             G.lat = nmeaCoord(f[3], f[4]);
             G.lon = nmeaCoord(f[5], f[6]);
             G.fix = true;
@@ -74,6 +79,7 @@ static void nmeaLine(char *s) {
         }
     } else if (!strcmp(type, "GGA") && nf >= 10) {
         G.sats = (uint8_t)atoi(f[7]);
+        G.hdop = (float)atof(f[8]);
         if (atoi(f[6]) > 0) G.alt = (int32_t)lround(atof(f[9]));
     }
 }

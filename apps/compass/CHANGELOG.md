@@ -1,5 +1,15 @@
 # Changelog — Brújula
 
+## 0.2.0
+- GPS del Cap LoRa-1262: satélites, velocidad y altitud en el pie de pantalla (sin el módulo, igual que antes).
+- Vista Destino (tab): flecha, distancia y rumbo hacia un punto guardado o un nodo Meshtastic con posición,
+  y cuánto girar. Para los nodos que mandan posición aproximada muestra el margen (±730 m en el canal público).
+- Puntos: p guarda la posición actual, del borra el elegido; ; y . cambian de destino. Van a la SD en
+  /compass/points.csv ("nombre,latitud,longitud"), editable en la PC.
+- Nodos: los lee de /meshtastic/nodes.bin (lo que guardan las apps Meshtastic y Meshtastic BT).
+- En 2D, el destino elegido aparece como un rombo verde sobre la rosa.
+- Necesita CardputerOS 0.8.0 o posterior (GNSS); permisos nuevos: GNSS y tarjeta SD.
+
 ## 0.1.3
 - Intents (CardputerOS 0.7.0 and later, docs/intents.md): compass.tilt, compass.flat.
 
