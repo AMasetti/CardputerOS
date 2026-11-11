@@ -57,6 +57,7 @@ struct Settings {
     bool relay, gps, share_pos, sound;
 };
 static Settings S;
+static bool okMqtt = true; // aparte de Settings: agregarlo ahí invalidaría la config guardada
 static uint32_t myNode;
 
 static void defaultSettings() {
@@ -93,6 +94,7 @@ static void loadSettings() {
     S.short_name[sizeof(S.short_name) - 1] = 0;
     S.channel[sizeof(S.channel) - 1] = 0;
     if (S.psk_len > 32) S.psk_len = 1;
+    okMqtt = prefs.getBool("mqtt", true);
 }
 
 static void saveSettings() { prefs.putBytes("cfg", &S, sizeof(S)); }
@@ -135,6 +137,7 @@ static void applyRouter() {
     R.me = myNode;
     R.hop_limit = S.hops;
     R.rebroadcast = S.relay;
+    R.ok_to_mqtt = okMqtt;
     R.preset = preset();
     snprintf(R.owner.id, sizeof(R.owner.id), "!%08x", (unsigned)myNode);
     strncpy(R.owner.long_name, S.long_name, sizeof(R.owner.long_name) - 1);
@@ -439,6 +442,11 @@ static Position myPosition() {
     p.location_source = 2; // GPS interno
     p.sats_in_view = G.sats;
     p.precision_bits = 32;
+    if (psk_is_public(S.psk, S.psk_len)) { // canal público: posición aproximada, como el firmware
+        reduce_precision(p.latitude_i, MAX_PUBLIC_PRECISION);
+        reduce_precision(p.longitude_i, MAX_PUBLIC_PRECISION);
+        p.precision_bits = MAX_PUBLIC_PRECISION;
+    }
     return p;
 }
 
@@ -835,10 +843,10 @@ static void drawNodes() {
 
 // ---- configuración ------------------------------------------------------------------------------------------
 enum CfgItem { CF_LONG, CF_SHORT, CF_REGION, CF_PRESET, CF_CHANNEL, CF_PSK, CF_SLOT, CF_POWER, CF_HOPS,
-               CF_RELAY, CF_GPS, CF_SHARE, CF_SOUND, CF_SEND_INFO, CF_SEND_POS, CF_CLEAR, CF_COUNT };
+               CF_RELAY, CF_GPS, CF_SHARE, CF_MQTT, CF_SOUND, CF_SEND_INFO, CF_SEND_POS, CF_CLEAR, CF_COUNT };
 static const char *CFG_NAMES[CF_COUNT] = {"Nombre", "Nombre corto", "Región", "Modo (preset)", "Canal", "Clave (PSK)",
                                           "Slot de frecuencia", "Potencia", "Saltos máx.", "Retransmitir", "GPS",
-                                          "Compartir posición", "Sonido", "Anunciar nodo ahora", "Enviar posición ahora",
+                                          "Compartir posición", "Subir a MQTT/mapa", "Sonido", "Anunciar nodo ahora", "Enviar posición ahora",
                                           "Borrar mensajes"};
 
 static void cfgValue(int i, char *b, size_t n) {
@@ -862,6 +870,7 @@ static void cfgValue(int i, char *b, size_t n) {
     case CF_RELAY: snprintf(b, n, "%s", S.relay ? "sí" : "no"); break;
     case CF_GPS: snprintf(b, n, "%s", S.gps ? (G.fix ? "sí · fix" : "sí · buscando") : "no"); break;
     case CF_SHARE: snprintf(b, n, "%s", S.share_pos ? "sí" : "no"); break;
+    case CF_MQTT: snprintf(b, n, "%s", okMqtt ? "sí" : "no"); break;
     case CF_SOUND: snprintf(b, n, "%s", S.sound ? "sí" : "no"); break;
     default: b[0] = 0;
     }
@@ -926,6 +935,7 @@ static void cfgChange(int dir) {
     case CF_RELAY: S.relay = !S.relay; break;
     case CF_GPS: S.gps = !S.gps; setGps(S.gps); break;
     case CF_SHARE: S.share_pos = !S.share_pos; if (S.share_pos) nextPosition = millis() + 5000; break;
+    case CF_MQTT: okMqtt = !okMqtt; prefs.putBool("mqtt", okMqtt); break;
     case CF_SOUND: S.sound = !S.sound; break;
     default: return;
     }

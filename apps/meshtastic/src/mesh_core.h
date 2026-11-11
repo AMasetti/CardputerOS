@@ -415,6 +415,19 @@ inline size_t expand_psk(const uint8_t *psk, size_t n, uint8_t out[32]) {
     return 32;
 }
 
+// The firmware never sends more than 15 bits of position precision (~700 m) on a channel whose key is
+// public (the default "AQ==" family); same rounding as the firmware: keep the top bits, then centre.
+constexpr uint32_t MAX_PUBLIC_PRECISION = 15;
+inline bool psk_is_public(const uint8_t *psk, size_t n) {
+    return n <= 1 || (n == 16 && memcmp(psk, DEFAULT_PSK, 15) == 0);
+}
+inline void reduce_precision(int32_t &v, uint32_t bits) {
+    if (bits >= 32 || bits == 0) return;
+    uint32_t u = (uint32_t)v & (UINT32_MAX << (32 - bits));
+    u += 1u << (31 - bits);
+    v = (int32_t)u;
+}
+
 inline uint8_t xor_hash(const uint8_t *p, size_t n) {
     uint8_t h = 0;
     for (size_t i = 0; i < n; i++) h ^= p[i];
@@ -572,6 +585,9 @@ class Router {
     uint32_t me = 0;
     uint8_t hop_limit = 3;
     bool rebroadcast = true;
+    // Data.bitfield bit 0: MQTT gateways only upload packets that carry it (firmware 2.5+), and the
+    // public maps are fed from MQTT
+    bool ok_to_mqtt = true;
     User owner;
     Preset preset = PRESETS[0];
 
@@ -619,6 +635,8 @@ class Router {
     // returns the packet id (0 when it could not be queued)
     uint32_t send_data(uint32_t to, Data &d, bool want_ack, uint32_t delay_ms = 0) {
         uint8_t buf[MAX_PACKET];
+        d.has_bitfield = true;
+        d.bitfield = (d.bitfield & ~1u) | (ok_to_mqtt ? 1u : 0u);
         size_t n = d.encode(buf + HEADER_LEN, MAX_PAYLOAD);
         if (!n) return 0;
         Header h;

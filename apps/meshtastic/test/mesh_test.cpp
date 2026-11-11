@@ -77,6 +77,19 @@ int main(int argc, char **argv) {
     uint32_t at = airtime_ms(lf, 50);
     CHECK(at > 450 && at < 700); // LongFast 50 bytes ~ 0.6 s
 
+    // --- position precision on public channels (firmware: 15 bits, centred) ---
+    {
+        CHECK(psk_is_public(&one, 1) && psk_is_public(DEFAULT_PSK, 16));
+        uint8_t k16[16] = {9};
+        CHECK(!psk_is_public(k16, 16));
+        int32_t lat = -329442123, full = lat;
+        reduce_precision(lat, 15);
+        CHECK(lat != full && (lat > full ? lat - full : full - lat) < (1 << 17));
+        int32_t again = lat;
+        reduce_precision(again, 15);
+        CHECK(again == lat); // stable
+    }
+
     // --- base64 ---
     char b64[64];
     b64_encode(&one, 1, b64, sizeof(b64));

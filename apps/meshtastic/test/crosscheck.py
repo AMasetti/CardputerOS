@@ -30,6 +30,8 @@ for line in sys.stdin:
     port = portnums_pb2.PortNum.Name(d.portnum)
     assert ch == 8, f"channel hash {ch}"
     assert flags & 7 == 3 and flags >> 5 == 3, f"flags {flags:#x}"
+    # MQTT gateways (firmware 2.5+) drop packets without the OK-to-MQTT bit, so the public maps never see them
+    assert d.HasField("bitfield") and d.bitfield & 1, "OK_TO_MQTT bit missing"
     if d.portnum == portnums_pb2.TEXT_MESSAGE_APP:
         print(port, d.payload.decode())
         assert d.payload == b"dup"

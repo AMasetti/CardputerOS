@@ -47,6 +47,16 @@ activa "Compartir posición" y hay fix, la posición cada 15 min. Retransmite lo
 
 Ajustes en la flash; nodos y los últimos 40 mensajes en la SD (`/meshtastic`).
 
+## Aparecer en el mapa
+
+Los mapas públicos (por ejemplo meshtastic.liamcottle.net) no escuchan la radio: se alimentan de MQTT, adonde
+suben los paquetes los nodos con internet que actúan de gateway. Para aparecer hacen falta tres cosas:
+
+1. Un gateway al alcance (directo o a pocos saltos) con uplink activado en el canal LongFast.
+2. "Subir a MQTT/mapa" en sí (de fábrica).
+3. "Compartir posición" en sí y fix de GPS: el mapa solo muestra nodos con posición. En el canal público
+   la posición sale aproximada (~700 m).
+
 ## Intents
 
 `mesh.send` (`text`, `to` opcional: `!a1b2c3d4` o nombre corto), `mesh.listen` (`seconds`) y

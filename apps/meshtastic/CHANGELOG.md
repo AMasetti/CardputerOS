@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.3
+- Los paquetes llevan la marca "OK to MQTT" (Data.bitfield bit 0): sin ella los gateways con firmware
+  2.5+ no los suben a MQTT y el nodo no aparece en los mapas públicos. Ajuste "Subir a MQTT/mapa" (sí de fábrica).
+- En el canal público la posición sale con 15 bits de precisión (~700 m), como hace el firmware.
+
 ## 0.1.2
 - Diagnóstico de radio más largo (hasta 4 líneas). Con CardputerOS 0.8.3 la radio arranca en el
   Cap LoRa-1262 (el OS descartaba el TCXO por un error de arranque que quedaba del encendido).
