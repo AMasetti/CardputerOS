@@ -1,6 +1,7 @@
 /* WiFi + sockets. The OS owns the radio: connection state survives app changes. */
 #include "app_ctx.h"
 #include "esp_event.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "esp_wifi.h"
@@ -62,14 +63,21 @@ static void on_event(void *arg, esp_event_base_t base, int32_t id, void *data) {
     }
 }
 
-void cpos_wifi_ensure(void) {
-    if (s_inited) return;
+/* 0 when the radio is up. Never aborts: with too little RAM left (an app holding big buffers) the
+   WiFi driver cannot start, and the caller gets an error instead of a crash. */
+int cpos_wifi_ensure(void) {
+    if (s_inited) return 0;
 #ifdef CONFIG_CPOS_EMULATOR
     /* no radio in the emulator: pretend it is up and let scans return fake networks */
     if (!s_ev) s_ev = xEventGroupCreate();
     s_inited = true;
-    return;
+    return 0;
 #endif
+    size_t free_int = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (free_int < 50 * 1024) {
+        ESP_LOGW(TAG, "not starting WiFi: %u bytes free", (unsigned)free_int);
+        return -1;
+    }
     static bool base_done; /* netif, event loop and handlers outlive a cpos_wifi_stop() */
     if (!base_done) {
         s_ev = xEventGroupCreate();
@@ -82,11 +90,21 @@ void cpos_wifi_ensure(void) {
     }
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     cfg.nvs_enable = 0;
-    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+    esp_err_t e = esp_wifi_init(&cfg);
+    if (e != ESP_OK) {
+        ESP_LOGW(TAG, "esp_wifi_init: %s (free %u)", esp_err_to_name(e), (unsigned)free_int);
+        return -1;
+    }
     esp_wifi_set_storage(WIFI_STORAGE_RAM);
     esp_wifi_set_mode(WIFI_MODE_STA);
-    ESP_ERROR_CHECK(esp_wifi_start());
+    e = esp_wifi_start();
+    if (e != ESP_OK) {
+        ESP_LOGW(TAG, "esp_wifi_start: %s", esp_err_to_name(e));
+        esp_wifi_deinit();
+        return -1;
+    }
     s_inited = true;
+    return 0;
 }
 
 void cpos_wifi_stop(void) {
@@ -99,7 +117,7 @@ void cpos_wifi_stop(void) {
 }
 
 int cpos_wifi_scan_blocking(cpos_scan_t *out, int max) {
-    cpos_wifi_ensure();
+    if (cpos_wifi_ensure()) return 0;
     xEventGroupClearBits(s_ev, EV_SCAN);
     s_ap_count = -1;
     wifi_scan_config_t sc = {.show_hidden = false};
@@ -122,7 +140,7 @@ int cpos_wifi_scan_blocking(cpos_scan_t *out, int max) {
 }
 
 int cpos_wifi_connect(const char *ssid, const char *pass, int timeout_ms) {
-    cpos_wifi_ensure();
+    if (cpos_wifi_ensure()) return -1;
     wifi_config_t wc = {0};
     strlcpy((char *)wc.sta.ssid, ssid, sizeof(wc.sta.ssid));
     strlcpy((char *)wc.sta.password, pass ? pass : "", sizeof(wc.sta.password));
@@ -241,12 +259,12 @@ int cpos_net_background_busy(void) { return s_bg_running; }
 
 static int n_mode(int sta) {
     NEED_WIFI(-1);
-    if (sta) cpos_wifi_ensure();
+    if (sta && cpos_wifi_ensure()) return -1;
     return 0;
 }
 static int n_scan_start(int async) {
     NEED_WIFI(-1);
-    cpos_wifi_ensure();
+    if (cpos_wifi_ensure()) return -1;
 #ifdef CONFIG_CPOS_EMULATOR
     memset(s_aps, 0, sizeof(s_aps));
     strcpy((char *)s_aps[0].ssid, "JumpingSumo_a1b2c3"); s_aps[0].rssi = -48; s_aps[0].primary = 6;

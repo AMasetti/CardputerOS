@@ -464,7 +464,7 @@ static constexpr int UPQ = 6;
 static UpMsg *upq;
 static int upHead = 0, upN = 0;
 static void *upLock;
-enum { MQ_OFF, MQ_NO_WIFI, MQ_CONNECTING, MQ_UP };
+enum { MQ_OFF, MQ_NO_WIFI, MQ_CONNECTING, MQ_UP, MQ_NO_MEM };
 static volatile int mqttState = MQ_OFF;
 static volatile uint32_t mqttSent = 0;
 static bool mqttStarted = false;
@@ -521,6 +521,8 @@ static void mqttTask(void *) {
     for (;;) {
         if (!wifiMqtt) { mqttState = MQ_OFF; delay(1000); continue; }
         if (cpos_api->net.status() != 3) { // la red guardada en System > WiFi
+            // el driver de WiFi necesita ~50 KB: sin eso no se intenta (el OS también se niega)
+            if (cpos_api->free_heap() < 60 * 1024) { mqttState = MQ_NO_MEM; delay(10000); continue; }
             mqttState = MQ_NO_WIFI;
             cpos_api->net.connect("", "");
             delay(3000);
@@ -654,7 +656,15 @@ static void periodic() {
 static const lgfx::IFont *FONT = &fonts::lgfxJapanGothicP_12;
 static const int LINE_H = 13;
 
-static size_t utf8Len(uint8_t c) { return c < 0x80 ? 1 : (c >> 5) == 6 ? 2 : (c >> 4) == 14 ? 3 : (c >> 3) == 30 ? 4 : 1; }
+// largo del carácter UTF-8 que empieza en p, sin pasar nunca del final del texto: un mensaje recortado o
+// mal formado (llega de la red) puede terminar a mitad de un carácter
+static size_t utf8Len(const char *p) {
+    uint8_t c = (uint8_t)*p;
+    size_t want = c < 0x80 ? 1 : (c >> 5) == 6 ? 2 : (c >> 4) == 14 ? 3 : (c >> 3) == 30 ? 4 : 1;
+    size_t n = 1;
+    while (n < want && p[n] && ((uint8_t)p[n] & 0xC0) == 0x80) n++;
+    return n;
+}
 
 // corta s en líneas de ancho w; devuelve la cantidad (como mucho max) y los comienzos en starts/lens
 static int wrap(const char *s, int w, const char **starts, int *lens, int max) {
@@ -667,7 +677,7 @@ static int wrap(const char *s, int w, const char **starts, int *lens, int max) {
         const char *best = nullptr;
         const char *q = p;
         while (*q) {
-            const char *nq = q + utf8Len((uint8_t)*q);
+            const char *nq = q + utf8Len(q);
             size_t l = nq - p;
             memcpy(tmp, p, l);
             tmp[l] = 0;
@@ -676,7 +686,7 @@ static int wrap(const char *s, int w, const char **starts, int *lens, int max) {
             q = nq;
             if (*q == '\n') break;
         }
-        const char *end = *q == 0 ? q : (best ? best : (q > p ? q : p + utf8Len((uint8_t)*p)));
+        const char *end = *q == 0 ? q : (best ? best : (q > p ? q : p + utf8Len(p)));
         if (*q == '\n') end = q;
         starts[n] = p;
         lens[n] = (int)(end - p);
@@ -1040,7 +1050,7 @@ static void cfgValue(int i, char *b, size_t n) {
     case CF_WIFI:
         if (!wifiMqtt) snprintf(b, n, "no");
         else if (!mqttStarted) snprintf(b, n, "sí · OS sin soporte");
-        else snprintf(b, n, "%s", mqttState == MQ_UP ? "sí · conectado" : mqttState == MQ_NO_WIFI ? "sí · sin WiFi" : "sí · conectando");
+        else snprintf(b, n, "%s", mqttState == MQ_UP ? "sí · conectado" : mqttState == MQ_NO_WIFI ? "sí · sin WiFi" : mqttState == MQ_NO_MEM ? "sí · sin memoria" : "sí · conectando");
         break;
     case CF_SOUND: snprintf(b, n, "%s", S.sound ? "sí" : "no"); break;
     default: b[0] = 0;

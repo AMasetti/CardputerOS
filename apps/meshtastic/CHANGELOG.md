@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1
+- Fix: un mensaje recortado o con UTF-8 mal formado (llega de la red) hacía leer más allá del texto
+  al acomodarlo en líneas y podía colgar o reiniciar el sistema.
+- Gateway WiFi: no intenta prender el WiFi con menos de 60 KB libres ("sí · sin memoria" en Config).
+- Menos RAM: hasta 60 nodos, colas de radio más chicas.
+
 ## 0.2.0
 - Gateway WiFi propio: con la red guardada en System > WiFi, el nodo publica en mqtt.meshtastic.org
   (msh/<región>/2/e/<canal>/<id>) sus paquetes cifrados, los de otros nodos que permiten MQTT, y un

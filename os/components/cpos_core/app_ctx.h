@@ -84,7 +84,7 @@ void cpos_app_release(app_ctx_t *a);
 
 /* wifi service (shared by the OS UI and apps) */
 typedef struct { char ssid[33]; int8_t rssi; uint8_t open; uint8_t channel; } cpos_scan_t;
-void cpos_wifi_ensure(void);                       /* start the radio (idempotent) */
+int cpos_wifi_ensure(void);                        /* start the radio (idempotent); -1 = not enough RAM or driver error */
 int cpos_wifi_scan_blocking(cpos_scan_t *out, int max);
 int cpos_wifi_connect(const char *ssid, const char *pass, int timeout_ms); /* 0 on success */
 void cpos_wifi_save(const char *ssid, const char *pass);
