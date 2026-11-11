@@ -64,6 +64,8 @@ void cpos_app_stop_tasks(app_ctx_t *a);
 void cpos_app_cleanup_rtos(app_ctx_t *a);
 void cpos_media_fill(cpos_media_api_t *a);
 void cpos_intent_fill(cpos_intent_api_t *a);
+void cpos_lora_fill(cpos_lora_api_t *a);
+void cpos_app_cleanup_lora(app_ctx_t *a);
 /* run one intent in the app at path; returns CPOS_INTENT_* and the value text */
 int cpos_run_intent(const char *path, const char *name, const char *args, char *value, size_t vmax, uint32_t timeout_ms);
 void cpos_app_cleanup_media(app_ctx_t *a);

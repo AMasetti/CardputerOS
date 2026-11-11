@@ -300,6 +300,7 @@ const cpos_api_t *cpos_api_get(void) {
         cpos_rtos_fill(&s_api_rw.rtos);
         cpos_media_fill(&s_api_rw.media);
         cpos_intent_fill(&s_api_rw.intent);
+        cpos_lora_fill(&s_api_rw.lora);
         extern void cpos_gpio_fill(cpos_gpio_api_t *);
         cpos_gpio_fill(&s_api_rw.gpio);
     }
@@ -313,6 +314,7 @@ void cpos_app_release(app_ctx_t *a) {
     cpos_app_cleanup_net(a);
     cpos_app_cleanup_audio(a);
     cpos_app_cleanup_ble(a);
+    cpos_app_cleanup_lora(a);
     cpos_app_cleanup_media(a);
     cpos_app_cleanup_rtos(a);
     cpos_app_cleanup_gpio(a);

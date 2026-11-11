@@ -207,11 +207,11 @@ static int ota_sink(const uint8_t *d, size_t n, void *ctx) {
     return esp_ota_write(o->h, d, n) == ESP_OK ? 0 : -1;
 }
 
-static const char *perm_names[] = {"SD card", "WiFi", "Bluetooth", "Speaker", "Microphone", "Motion sensor", "Infrared", "GPIO pins"};
+static const char *perm_names[] = {"SD card", "WiFi", "Bluetooth", "Speaker", "Microphone", "Motion sensor", "Infrared", "GPIO pins", "LoRa radio", "GNSS location"};
 
 static void perms_text(uint32_t p, char *out, size_t n) {
     out[0] = 0;
-    for (int i = 0; i < 8; i++) {
+    for (int i = 0; i < (int)(sizeof(perm_names) / sizeof(perm_names[0])); i++) {
         if (!(p & (1u << i))) continue;
         if (out[0]) strlcat(out, ", ", n);
         strlcat(out, perm_names[i], n);

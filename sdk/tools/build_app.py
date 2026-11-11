@@ -11,7 +11,7 @@ import argparse, glob, json, os, pathlib, shutil, subprocess, sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 PERMS = {"sd": 1 << 0, "wifi": 1 << 1, "ble": 1 << 2, "audio_out": 1 << 3, "audio_in": 1 << 4,
-         "imu": 1 << 5, "ir": 1 << 6, "gpio": 1 << 7}
+         "imu": 1 << 5, "ir": 1 << 6, "gpio": 1 << 7, "lora": 1 << 8, "gnss": 1 << 9}
 
 
 def find_tool(name):
@@ -191,6 +191,9 @@ def main():
     # intents arrived in minor 4
     if "on_intent" in src_text or meta.get("intents"):
         a.abi_minor = max(a.abi_minor, 4)
+    # the LoRa radio and GNSS arrived in minor 5
+    if {"lora", "gnss"} & set(meta.get("perms", [])) or "cpos_api->lora" in src_text:
+        a.abi_minor = max(a.abi_minor, 5)
     abi_minor = a.abi_minor
 
     gcc = find_tool("xtensa-esp32s3-elf-gcc")

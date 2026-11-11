@@ -1,0 +1,43 @@
+{
+  "name": "meshtastic",
+  "displayName": "Meshtastic",
+  "version": "0.1.0",
+  "description": "Nodo Meshtastic con el Cap LoRa-1262: chat en el canal público y mensajes directos, lista de nodos con distancia, GPS y retransmisión. Configurado para Argentina (ANZ 915-928 MHz, LongFast).",
+  "perms": [
+    "lora",
+    "gnss",
+    "sd",
+    "audio_out"
+  ],
+  "stack": 12288,
+  "intents": {
+    "mesh.send": {
+      "title": "Enviar un mensaje a la red Meshtastic",
+      "args": {
+        "text": "text:90",
+        "to": "text:10"
+      },
+      "needs": [
+        "lora"
+      ],
+      "returns": "ok",
+      "timeout_ms": 30000
+    },
+    "mesh.listen": {
+      "title": "Escuchar la red y devolver los mensajes recibidos",
+      "args": {
+        "seconds": "int:5-120"
+      },
+      "needs": [
+        "lora"
+      ],
+      "returns": "list:5",
+      "timeout_ms": 130000
+    },
+    "mesh.nodes": {
+      "title": "Nodos conocidos (nombres cortos)",
+      "returns": "list:12",
+      "timeout_ms": 5000
+    }
+  }
+}

@@ -188,6 +188,14 @@ This section is generated from the `app.json` files by `tools/gen_intents_doc.py
 | `strip.brightness` | Brillo | `dir`: text:4, `steps`: int:1-10 | ok |
 | `strip.mode` | Modo (flash, strobe, fade, smooth) | `name`: text:6 | ok |
 
+### meshtastic
+
+| Intent | What it does | Arguments | Returns |
+|---|---|---|---|
+| `mesh.send` | Enviar un mensaje a la red Meshtastic | `text`: text:90, `to`: text:10 | ok |
+| `mesh.listen` | Escuchar la red y devolver los mensajes recibidos | `seconds`: int:5-120 | list:5 |
+| `mesh.nodes` | Nodos conocidos (nombres cortos) | — | list:12 |
+
 ### mp3-player
 
 | Intent | What it does | Arguments | Returns |

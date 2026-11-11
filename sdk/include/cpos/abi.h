@@ -26,7 +26,7 @@ extern "C" {
 #endif
 
 #define CPOS_ABI_MAJOR 1
-#define CPOS_ABI_MINOR 4
+#define CPOS_ABI_MINOR 5
 
 /* ---- permissions (declared in the app header) ----------------------------- */
 #define CPOS_PERM_SD        (1u << 0)
@@ -37,6 +37,8 @@ extern "C" {
 #define CPOS_PERM_IMU       (1u << 5)
 #define CPOS_PERM_IR        (1u << 6)
 #define CPOS_PERM_GPIO      (1u << 7) /* Grove / EXT header pins */
+#define CPOS_PERM_LORA      (1u << 8) /* LoRa radio of the Cap LoRa-1262 (minor 5) */
+#define CPOS_PERM_GNSS      (1u << 9) /* GNSS receiver of the Cap LoRa-1262 (minor 5) */
 
 /* ---- app header, placed in the ".cpos_app" section ---------------------- */
 #define CPOS_APP_MAGIC 0x50415043u /* "CPAP" */
@@ -299,6 +301,51 @@ typedef struct {
     uintptr_t reserved[4];
 } cpos_intent_api_t;
 
+/* ---- LoRa radio and GNSS of the Cap LoRa-1262 (minor 5) ----------------------------------
+ * The OS drives the SX1262 (it shares SPI3 with the microSD card) from its own task: received
+ * packets are queued for the app, packets to send are queued by the app. The receiver is always
+ * on between transmissions. The GNSS receiver (ATGM336H) is a plain NMEA serial port. */
+typedef struct {
+    uint32_t freq_hz;
+    uint32_t bw_hz;      /* 7800 .. 500000 (LoRa bandwidths) */
+    uint8_t sf;          /* 5 .. 12 */
+    uint8_t cr;          /* 5 .. 8 = coding rate 4/5 .. 4/8 */
+    uint8_t sync_word;   /* 0x12 private, 0x34 LoRaWAN public, 0x2B Meshtastic */
+    int8_t power_dbm;    /* -9 .. 22 */
+    uint16_t preamble;   /* symbols */
+    uint8_t crc;         /* 1 = payload CRC on */
+    uint8_t iq_invert;   /* 1 = inverted IQ */
+} cpos_lora_cfg_t;
+
+typedef struct {
+    uint32_t ms;         /* millis() at reception */
+    int16_t rssi;        /* dBm */
+    int8_t snr4;         /* SNR in quarters of a dB */
+    uint8_t len;
+    uint8_t data[255];
+} cpos_lora_pkt_t;
+
+typedef struct {
+    uint32_t rx_ok, rx_bad, tx_ok, tx_fail;
+    uint32_t tx_air_ms, rx_air_ms; /* total time on air since begin() */
+} cpos_lora_stats_t;
+
+typedef struct {
+    int (*begin)(const cpos_lora_cfg_t *cfg);      /* 0 ok, -1 no permission, -2 no radio answered, -3 bad config */
+    void (*end)(void);
+    int (*configure)(const cpos_lora_cfg_t *cfg);  /* new parameters while running; 0 ok */
+    int (*send)(const uint8_t *data, size_t len);  /* queued: 0 ok, -1 queue full or not running */
+    int (*pending)(void);                          /* packets queued or on air */
+    int (*recv)(cpos_lora_pkt_t *out);             /* 1 = one packet, 0 none queued */
+    int (*busy)(void);                             /* 1 while a packet is being received (header seen) or sent */
+    void (*stats)(cpos_lora_stats_t *out);
+    int (*gnss_begin)(uint32_t baud);              /* 0 ok */
+    void (*gnss_end)(void);
+    int (*gnss_read)(uint8_t *buf, size_t max);    /* bytes read, 0 none waiting */
+    int (*gnss_write)(const uint8_t *buf, size_t len);
+    uintptr_t reserved[4];
+} cpos_lora_api_t;
+
 /* ---- the table ------------------------------------------------------------------- */
 struct cpos_api {
     uint32_t abi_major;
@@ -339,6 +386,8 @@ struct cpos_api {
     cpos_media_api_t media;
     /* minor 4 */
     cpos_intent_api_t intent;
+    /* minor 5 */
+    cpos_lora_api_t lora;
 };
 
 #ifdef __cplusplus
