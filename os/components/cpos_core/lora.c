@@ -101,7 +101,7 @@ static uint32_t s_tx_start, s_tx_air;
 static cpos_lora_stats_t s_stats;
 static int s_gnss_up;
 
-static char s_diag[120];             /* what the last begin() saw, for the app to show */
+static char s_diag[200];             /* what the last begin() saw, for the app to show */
 static int s_gnss_swap, s_gnss_seen;
 static uint32_t s_gnss_try_at;
 
@@ -299,7 +299,8 @@ static void cap_disable(void) {
     s_pi4io = NULL;
 }
 
-static int chip_init(int tcxo) {
+/* tcxo: power the 1.8 V TCXO from DIO3. force: carry on even if the oscillator reports a start error. */
+static int chip_init(int tcxo, int force) {
     hw_reset();
     uint8_t sw[2] = {0};
     int busy = gpio_get_level(PIN_LORA_BUSY);
@@ -311,6 +312,10 @@ static int chip_init(int tcxo) {
         return -2; /* nothing (or not an SX126x) on the bus */
     }
     standby();
+    /* XOSC_START_ERR is set at power-up on boards with a TCXO (it was not powered yet): clear it before
+       configuring the TCXO, as RadioLib does, or the check below sees a stale error */
+    uint8_t z[2] = {0, 0};
+    cmd(CMD_CLEAR_DEVICE_ERRORS, z, 2);
     if (tcxo) {
         uint8_t p[4] = {0x02 /* 1.8 V */, 0x00, 0x01, 0x40 /* 5 ms */};
         cmd(CMD_SET_DIO3_TCXO, p, 4);
@@ -321,13 +326,13 @@ static int chip_init(int tcxo) {
     if (wait_busy(100)) return -1;
     uint8_t err[2] = {0};
     cmd_read(CMD_GET_DEVICE_ERRORS, err, 2);
-    if (err[1] & 0x20) { /* XOSC_START_ERR */
+    if (err[0] || err[1]) {
         size_t l = strlen(s_diag);
-        snprintf(s_diag + l, sizeof(s_diag) - l, " xosc-err");
-        uint8_t z[2] = {0, 0};
+        snprintf(s_diag + l, sizeof(s_diag) - l, " err:%02x%02x", err[0], err[1]);
         cmd(CMD_CLEAR_DEVICE_ERRORS, z, 2);
-        return -1;
     }
+    if ((err[1] & 0x20) && !force) return -1; /* XOSC_START_ERR: try the other oscillator */
+    standby(); /* back to a clean STDBY_RC after the error clear */
     uint8_t lora = 0x01;
     cmd(CMD_SET_PACKET_TYPE, &lora, 1);
     uint8_t dcdc = 0x01;
@@ -517,9 +522,10 @@ static int l_begin(const cpos_lora_cfg_t *cfg) {
 
     int cap = cap_enable(); /* a missing expander is logged; the chip is still tried */
     snprintf(s_diag, sizeof(s_diag), "exp:%s busy0:%d", cap ? "no" : "ok", gpio_get_level(PIN_LORA_BUSY));
-    int rc = chip_init(1);
+    int rc = chip_init(1, 0);
     s_tcxo = rc == 0;
-    if (rc == -1) rc = chip_init(0); /* no TCXO on this board: crystal */
+    if (rc == -1) rc = chip_init(0, 0); /* no TCXO on this board: crystal */
+    if (rc == -1) { rc = chip_init(1, 1); s_tcxo = 1; } /* both flagged: the Cap LoRa-1262 has a TCXO, use it anyway */
     {
         size_t l = strlen(s_diag);
         snprintf(s_diag + l, sizeof(s_diag) - l, rc ? " -> sin radio" : (s_tcxo ? " -> ok TCXO" : " -> ok XTAL"));

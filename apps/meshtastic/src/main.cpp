@@ -143,7 +143,7 @@ static void applyRouter() {
     R.set_channel(S.channel, S.psk, S.psk_len);
 }
 
-static char radioDiag[128];
+static char radioDiag[220];
 
 static void startRadio() {
     cpos_lora_cfg_t c = radioCfg();
@@ -691,9 +691,9 @@ static void drawChat() {
     if (!radioUp) {
         // diagnóstico del OS (expansor, BUSY, registro del SX1262, GPS), sobre los mensajes si los hay
         if (cpos_api->abi_minor >= 6 && cpos_api->lora.diag) cpos_api->lora.diag(radioDiag, sizeof(radioDiag));
-        const char *st[3];
-        int ln[3];
-        int n = wrap(radioDiag, 228, st, ln, 3);
+        const char *st[4];
+        int ln[4];
+        int n = wrap(radioDiag, 228, st, ln, 4);
         int y0 = 117 - (n + 2) * LINE_H;
         spr.fillRoundRect(2, y0 - 2, 236, (n + 2) * LINE_H + 3, 3, C_BAR);
         spr.setTextColor(C_RED);

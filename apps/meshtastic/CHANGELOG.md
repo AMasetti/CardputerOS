@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2
+- Diagnóstico de radio más largo (hasta 4 líneas). Con CardputerOS 0.8.3 la radio arranca en el
+  Cap LoRa-1262 (el OS descartaba el TCXO por un error de arranque que quedaba del encendido).
+
 ## 0.1.1
 - Sin radio: muestra el diagnóstico del OS (expansor del cap, línea BUSY, registro del SX1262, GPS)
   y Enter (sin texto) reintenta. Necesita CardputerOS 0.8.2 (ABI 1.6).
