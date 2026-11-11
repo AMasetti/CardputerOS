@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.4
+- Diagnóstico del gateway en Config > Gateway WiFi: "conectado · N env." (mensajes publicados en
+  mqtt.meshtastic.org) o el último error (DNS, TCP 1883, sin CONNACK, rechazado, envío, sin ping).
+
 ## 0.2.3
 - Fix "Sin memoria" al abrir: con permiso WiFi el OS deja prendido el WiFi del launcher (~50 KB).
   Con el gateway apagado la app lo apaga al arrancar; con el gateway prendido, si la RAM no alcanza,

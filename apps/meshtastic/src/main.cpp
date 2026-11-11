@@ -482,6 +482,7 @@ static void *upLock;
 enum { MQ_OFF, MQ_NO_WIFI, MQ_CONNECTING, MQ_UP, MQ_NO_MEM };
 static volatile int mqttState = MQ_OFF;
 static volatile uint32_t mqttSent = 0;
+static const char *volatile mqttErr = ""; // último problema, para Config
 static bool mqttStarted = false;
 
 static void nodeId(char *b, size_t n) { snprintf(b, n, "!%08x", (unsigned)myNode); }
@@ -544,11 +545,11 @@ static void mqttTask(void *) {
         }
         mqttState = MQ_CONNECTING;
         uint32_t ip = 0;
-        if (cpos_api->net.resolve(mqtt::BROKER, &ip)) { delay(10000); continue; }
+        if (cpos_api->net.resolve(mqtt::BROKER, &ip)) { mqttErr = "DNS"; delay(10000); continue; }
         int fd = cpos_api->net.socket(2, 1, 0);
-        if (fd < 0) { delay(10000); continue; }
+        if (fd < 0) { mqttErr = "socket"; delay(10000); continue; }
         cpos_sockaddr_in a = {sizeof(a), 2, (uint16_t)((mqtt::PORT & 0xFF) << 8 | mqtt::PORT >> 8), ip, {0}};
-        if (cpos_api->net.sock_connect(fd, &a, sizeof(a)) != 0) { cpos_api->net.close(fd); delay(15000); continue; }
+        if (cpos_api->net.sock_connect(fd, &a, sizeof(a)) != 0) { mqttErr = "TCP 1883"; cpos_api->net.close(fd); delay(15000); continue; }
         cpos_api->net.fcntl(fd, 4 /*F_SETFL*/, 1 /*O_NONBLOCK*/);
         char cid[12];
         nodeId(cid, sizeof(cid));
@@ -562,14 +563,20 @@ static void mqttTask(void *) {
             else if (r == 0) ok = false;
             else delay(50);
         }
-        if (!ok || !mqtt::connack_ok(ack, got)) { cpos_api->net.close(fd); delay(15000); continue; }
+        if (!ok || !mqtt::connack_ok(ack, got)) {
+            mqttErr = !ok ? "broker cerró" : got < 4 ? "sin CONNACK" : "rechazado";
+            cpos_api->net.close(fd);
+            delay(15000);
+            continue;
+        }
+        mqttErr = "";
         mqttState = MQ_UP;
         uint32_t lastPing = millis(), lastRx = millis();
         while (wifiMqtt && cpos_api->net.status() == 3) {
             bool err = false;
             while (upPop(m)) {
                 n = mqtt::publish(m.topic, m.data, m.len, buf, sizeof(buf));
-                if (!n || sendAll(fd, buf, n)) { err = true; break; }
+                if (!n || sendAll(fd, buf, n)) { err = true; mqttErr = "envío"; break; }
                 mqttSent++;
             }
             if (err) break;
@@ -581,8 +588,8 @@ static void mqttTask(void *) {
             uint8_t rx[64];
             int r = cpos_api->net.sock_recv(fd, rx, sizeof(rx), 0);
             if (r > 0) lastRx = millis();
-            else if (r == 0) break;                  // el broker cerró
-            if (millis() - lastRx > 100000) break;   // sin respuesta a los ping
+            else if (r == 0) { mqttErr = "broker cerró"; break; }
+            if (millis() - lastRx > 100000) { mqttErr = "sin ping"; break; } // sin respuesta a los ping
             delay(100);
         }
         cpos_api->net.close(fd);
@@ -1066,7 +1073,10 @@ static void cfgValue(int i, char *b, size_t n) {
         if (!wifiMqtt) snprintf(b, n, "no");
         else if (!mqttStarted) snprintf(b, n, "sí · OS sin soporte");
         else if (mqttState == MQ_NO_MEM) snprintf(b, n, "sin memoria (%u KB)", (unsigned)(cpos_api->free_heap() / 1024));
-        else snprintf(b, n, "%s", mqttState == MQ_UP ? "sí · conectado" : mqttState == MQ_NO_WIFI ? "sí · sin WiFi" : "sí · conectando");
+        else if (mqttState == MQ_UP) snprintf(b, n, "conectado · %u env.", (unsigned)mqttSent);
+        else if (mqttState == MQ_NO_WIFI) snprintf(b, n, "sí · sin WiFi");
+        else if (mqttErr[0]) snprintf(b, n, "error: %s", (const char *)mqttErr);
+        else snprintf(b, n, "sí · conectando");
         break;
     case CF_SOUND: snprintf(b, n, "%s", S.sound ? "sí" : "no"); break;
     default: b[0] = 0;
