@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1
+- Sin radio: muestra el diagnóstico del OS (expansor del cap, línea BUSY, registro del SX1262, GPS)
+  y Enter (sin texto) reintenta. Necesita CardputerOS 0.8.2 (ABI 1.6).
+
 ## 0.1.0
 - Primera versión. Nodo Meshtastic 2.x con el Cap LoRa-1262 (CardputerOS 0.8.0 o posterior, ABI 1.5).
 - Región ANZ (915-928 MHz, la banda que ENACOM habilita en Argentina) y LongFast por defecto:

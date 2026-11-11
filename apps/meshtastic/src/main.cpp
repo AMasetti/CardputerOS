@@ -143,10 +143,14 @@ static void applyRouter() {
     R.set_channel(S.channel, S.psk, S.psk_len);
 }
 
+static char radioDiag[128];
+
 static void startRadio() {
     cpos_lora_cfg_t c = radioCfg();
     radioErr = cpos_api->lora.begin(&c);
     radioUp = radioErr == 0;
+    radioDiag[0] = 0;
+    if (cpos_api->abi_minor >= 6 && cpos_api->lora.diag) cpos_api->lora.diag(radioDiag, sizeof(radioDiag));
 }
 
 static void reconfigureRadio() {
@@ -679,14 +683,30 @@ static void drawChat() {
     drawTopBar(title, C_ACCENT); // tapa lo que se pasó por arriba
     if (!any) {
         spr.setTextColor(C_DIM);
-        spr.drawCenterString(conv == BROADCAST ? "Sin mensajes en el canal todavía" : "Sin mensajes con este nodo", 120, 50);
+        spr.drawCenterString(conv == BROADCAST ? "Sin mensajes en el canal todavía" : "Sin mensajes con este nodo", 120, radioUp ? 50 : 22);
         char b[48];
         snprintf(b, sizeof(b), "%s %.3f MHz · %s", region().name, freqHz() / 1e6, preset().name);
-        spr.drawCenterString(b, 120, 66);
-        if (!radioUp) {
-            spr.setTextColor(C_RED);
-            spr.drawCenterString(radioErr == -2 ? "No responde el Cap LoRa-1262" : "Radio no disponible", 120, 84);
+        spr.drawCenterString(b, 120, radioUp ? 66 : 36);
+    }
+    if (!radioUp) {
+        // diagnóstico del OS (expansor, BUSY, registro del SX1262, GPS), sobre los mensajes si los hay
+        if (cpos_api->abi_minor >= 6 && cpos_api->lora.diag) cpos_api->lora.diag(radioDiag, sizeof(radioDiag));
+        const char *st[3];
+        int ln[3];
+        int n = wrap(radioDiag, 228, st, ln, 3);
+        int y0 = 117 - (n + 2) * LINE_H;
+        spr.fillRoundRect(2, y0 - 2, 236, (n + 2) * LINE_H + 3, 3, C_BAR);
+        spr.setTextColor(C_RED);
+        spr.drawCenterString(radioErr == -2 ? "No responde el Cap LoRa-1262" : "Radio no disponible", 120, y0);
+        spr.setTextColor(C_DIM);
+        for (int k = 0; k < n; k++) {
+            char b[MAX_TEXT + 1];
+            memcpy(b, st[k], ln[k]);
+            b[ln[k]] = 0;
+            spr.drawCenterString(b, 120, y0 + (k + 1) * LINE_H);
         }
+        spr.setTextColor(C_ACCENT);
+        spr.drawCenterString("Enter: reintentar", 120, y0 + (n + 1) * LINE_H);
     }
     // entrada
     spr.fillRect(0, 120, 240, 15, C_BAR);
@@ -1033,7 +1053,11 @@ static void onKey(char c, bool fn) {
 
 static void onEnter() {
     if (screen == SCR_CHAT) {
-        if (inputLen) {
+        if (!inputLen && !radioUp) { // Enter sin texto y sin radio: reintentar
+            startRadio();
+            if (radioUp) { applyRouter(); showToast("Radio LoRa lista"); }
+            else showToast("Sigue sin responder");
+        } else if (inputLen) {
             sendText(input);
             inputLen = 0;
             input[0] = 0;

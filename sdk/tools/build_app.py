@@ -194,6 +194,9 @@ def main():
     # the LoRa radio and GNSS arrived in minor 5
     if {"lora", "gnss"} & set(meta.get("perms", [])) or "cpos_api->lora" in src_text:
         a.abi_minor = max(a.abi_minor, 5)
+    # lora.diag arrived in minor 6
+    if "lora.diag" in src_text:
+        a.abi_minor = max(a.abi_minor, 6)
     abi_minor = a.abi_minor
 
     gcc = find_tool("xtensa-esp32s3-elf-gcc")

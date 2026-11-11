@@ -26,7 +26,7 @@ extern "C" {
 #endif
 
 #define CPOS_ABI_MAJOR 1
-#define CPOS_ABI_MINOR 5
+#define CPOS_ABI_MINOR 6
 
 /* ---- permissions (declared in the app header) ----------------------------- */
 #define CPOS_PERM_SD        (1u << 0)
@@ -343,7 +343,9 @@ typedef struct {
     void (*gnss_end)(void);
     int (*gnss_read)(uint8_t *buf, size_t max);    /* bytes read, 0 none waiting */
     int (*gnss_write)(const uint8_t *buf, size_t len);
-    uintptr_t reserved[4];
+    /* minor 6: what the last begin() saw (expander, BUSY line, chip registers) and the GNSS state, as text */
+    int (*diag)(char *buf, size_t n);
+    uintptr_t reserved[3];
 } cpos_lora_api_t;
 
 /* ---- the table ------------------------------------------------------------------- */

@@ -101,6 +101,10 @@ static uint32_t s_tx_start, s_tx_air;
 static cpos_lora_stats_t s_stats;
 static int s_gnss_up;
 
+static char s_diag[120];             /* what the last begin() saw, for the app to show */
+static int s_gnss_swap, s_gnss_seen;
+static uint32_t s_gnss_try_at;
+
 static uint8_t s_tx[264] __attribute__((aligned(4)));
 static uint8_t s_rx[264] __attribute__((aligned(4)));
 
@@ -177,10 +181,10 @@ static void irq_clear(uint16_t m) {
 
 static void hw_reset(void) {
     gpio_set_level(PIN_LORA_RST, 0);
-    vTaskDelay(pdMS_TO_TICKS(2));
-    gpio_set_level(PIN_LORA_RST, 1);
     vTaskDelay(pdMS_TO_TICKS(10));
-    wait_busy(100);
+    gpio_set_level(PIN_LORA_RST, 1);
+    vTaskDelay(pdMS_TO_TICKS(20));
+    wait_busy(200);
 }
 
 static void standby(void) {
@@ -298,8 +302,12 @@ static void cap_disable(void) {
 static int chip_init(int tcxo) {
     hw_reset();
     uint8_t sw[2] = {0};
-    if (reg_read(REG_SYNC_WORD, sw, 2) || !((sw[0] == 0x14 && sw[1] == 0x24) || (sw[0] == 0x34 && sw[1] == 0x44))) {
-        ESP_LOGW(TAG, "SX1262 sync word reads %02x %02x (busy %d)", sw[0], sw[1], gpio_get_level(PIN_LORA_BUSY));
+    int busy = gpio_get_level(PIN_LORA_BUSY);
+    int rr = reg_read(REG_SYNC_WORD, sw, 2);
+    size_t dl = strlen(s_diag);
+    snprintf(s_diag + dl, sizeof(s_diag) - dl, " reg:%02x%02x%s busy:%d", sw[0], sw[1], rr ? "(timeout)" : "", busy);
+    if (rr || !((sw[0] == 0x14 && sw[1] == 0x24) || (sw[0] == 0x34 && sw[1] == 0x44))) {
+        ESP_LOGW(TAG, "SX1262 sync word reads %02x %02x (busy %d)", sw[0], sw[1], busy);
         return -2; /* nothing (or not an SX126x) on the bus */
     }
     standby();
@@ -314,6 +322,8 @@ static int chip_init(int tcxo) {
     uint8_t err[2] = {0};
     cmd_read(CMD_GET_DEVICE_ERRORS, err, 2);
     if (err[1] & 0x20) { /* XOSC_START_ERR */
+        size_t l = strlen(s_diag);
+        snprintf(s_diag + l, sizeof(s_diag) - l, " xosc-err");
         uint8_t z[2] = {0, 0};
         cmd(CMD_CLEAR_DEVICE_ERRORS, z, 2);
         return -1;
@@ -499,15 +509,21 @@ static int l_begin(const cpos_lora_cfg_t *cfg) {
                             .quadhd_io_num = -1, .max_transfer_sz = 4096};
     esp_err_t e = spi_bus_initialize(SPI3_HOST, &bus, SPI_DMA_CH_AUTO); /* normally already up for the SD card */
     if (e != ESP_OK && e != ESP_ERR_INVALID_STATE) { l_end(); return -2; }
-    spi_device_interface_config_t dev = {.mode = 0, .clock_speed_hz = 8 * 1000 * 1000, .spics_io_num = PIN_LORA_NSS,
+    /* 2 MHz like RadioLib's default: long traces through the cap connector, shared with the card */
+    spi_device_interface_config_t dev = {.mode = 0, .clock_speed_hz = 2 * 1000 * 1000, .spics_io_num = PIN_LORA_NSS,
                                          .queue_size = 1};
     if (spi_bus_add_device(SPI3_HOST, &dev, &s_spi) != ESP_OK) { s_spi = NULL; l_end(); return -2; }
     s_up = 1;
 
     int cap = cap_enable(); /* a missing expander is logged; the chip is still tried */
+    snprintf(s_diag, sizeof(s_diag), "exp:%s busy0:%d", cap ? "no" : "ok", gpio_get_level(PIN_LORA_BUSY));
     int rc = chip_init(1);
     s_tcxo = rc == 0;
     if (rc == -1) rc = chip_init(0); /* no TCXO on this board: crystal */
+    {
+        size_t l = strlen(s_diag);
+        snprintf(s_diag + l, sizeof(s_diag) - l, rc ? " -> sin radio" : (s_tcxo ? " -> ok TCXO" : " -> ok XTAL"));
+    }
     if (rc) {
         ESP_LOGW(TAG, "no SX1262 answered (%d, expander %s)", rc, cap ? "missing" : "ok");
         l_end();
@@ -622,9 +638,22 @@ static int l_gnss_begin(uint32_t baud) {
     gpio_reset_pin(PIN_GNSS_RX);
     if (uart_driver_install(GNSS_UART, 2048, 0, 0, NULL, 0) != ESP_OK) return -2;
     uart_param_config(GNSS_UART, &c);
+    s_gnss_swap = 0;
+    s_gnss_seen = 0;
+    s_gnss_try_at = now_ms();
     uart_set_pin(GNSS_UART, PIN_GNSS_TX, PIN_GNSS_RX, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
     s_gnss_up = 1;
     return 0;
+}
+
+/* Boards and docs disagree on which of 13/15 is the receiver's TX: until NMEA shows up, swap them every 3 s. */
+static void gnss_try_swap(void) {
+    if (s_gnss_seen || now_ms() - s_gnss_try_at < 3000) return;
+    s_gnss_swap = !s_gnss_swap;
+    s_gnss_try_at = now_ms();
+    uart_set_pin(GNSS_UART, s_gnss_swap ? PIN_GNSS_RX : PIN_GNSS_TX, s_gnss_swap ? PIN_GNSS_TX : PIN_GNSS_RX,
+                 UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+    uart_flush_input(GNSS_UART);
 }
 
 static void l_gnss_end(void) {
@@ -643,6 +672,10 @@ static int l_gnss_read(uint8_t *buf, size_t max) {
     cpos_check_exit();
     if (!s_gnss_up || !buf || !max) return 0;
     int n = uart_read_bytes(GNSS_UART, buf, max, 0);
+    if (n > 0 && !s_gnss_seen)
+        for (int i = 0; i < n; i++)
+            if (buf[i] == '$') { s_gnss_seen = 1; ESP_LOGI(TAG, "GNSS data on RX %d", s_gnss_swap ? PIN_GNSS_TX : PIN_GNSS_RX); break; }
+    gnss_try_swap();
     return n > 0 ? n : 0;
 }
 
@@ -651,7 +684,14 @@ static int l_gnss_write(const uint8_t *buf, size_t len) {
     return uart_write_bytes(GNSS_UART, buf, len);
 }
 
+static int l_diag(char *buf, size_t n) {
+    if (!buf || !n) return 0;
+    return snprintf(buf, n, "%s | gps:%s%s", s_diag[0] ? s_diag : "-", !s_gnss_up ? "off" : s_gnss_seen ? "datos" : "sin datos",
+                    s_gnss_up ? (s_gnss_swap ? " rx13" : " rx15") : "");
+}
+
 void cpos_lora_fill(cpos_lora_api_t *a) {
+    a->diag = l_diag;
     a->begin = l_begin;
     a->end = l_end;
     a->configure = l_configure;
