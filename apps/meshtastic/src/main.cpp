@@ -41,10 +41,10 @@ static const uint16_t C_RED = lgfx::color565(255, 90, 90);
 static const uint16_t C_AMBER = lgfx::color565(255, 190, 70);
 static const uint16_t C_SEL = lgfx::color565(32, 70, 96);
 
-// La pantalla se dibuja en dos franjas de 240x68 con el mismo código: el canvas ocupa 32 KB en vez de
+// La pantalla se dibuja en tres franjas de 240x45 con el mismo código: el canvas ocupa 22 KB en vez de
 // 64 KB, y esa RAM es la que necesita el WiFi del gateway. Cada franja corre el dibujo completo con las
 // coordenadas desplazadas; lo que cae fuera se recorta.
-static constexpr int BAND_H = 68;
+static constexpr int BAND_H = 45; // 3 franjas: 21.6 KB
 class BandCanvas : public M5Canvas {
   public:
     using M5Canvas::M5Canvas;
@@ -296,7 +296,7 @@ struct Msg {
     uint8_t hops;
     char text[MAX_TEXT + 1];
 };
-static constexpr int MAX_MSGS = 40;
+static constexpr int MAX_MSGS = 25;
 static Msg *msgs;
 static int msgCount = 0;
 static bool msgsDirty = false, nodesDirty = false;
@@ -475,7 +475,7 @@ static Position myPosition() {
 // aproximada. Así aparece en los mapas públicos aunque no haya otro gateway cerca. La conexión corre en
 // una tarea propia para no trabar la pantalla.
 struct UpMsg { char topic[72]; uint16_t len; uint8_t data[400]; };
-static constexpr int UPQ = 6;
+static constexpr int UPQ = 4;
 static UpMsg *upq;
 static int upHead = 0, upN = 0;
 static void *upLock;
@@ -1350,8 +1350,7 @@ static bool allocState() {
     return g_router && msgs;
 }
 
-static void startAll() {
-    loadSettings();
+static void startAll() { // loadSettings() ya corrió en setup()
     Platform pf{p_now, p_rnd, p_aes, p_send, p_busy, p_uplink};
     R.begin(pf, &app);
     applyRouter();
@@ -1371,16 +1370,30 @@ void setup() {
     auto cfg = M5.config();
     M5Cardputer.begin(cfg, true);
     M5Cardputer.Display.setRotation(1);
-    spr.createSprite(240, BAND_H);
-    if (!allocState()) {
-        spr.fillSprite(C_BG);
-        spr.setTextColor(C_RED);
-        spr.drawCenterString("Sin memoria", 120, 60);
-        spr.pushSprite(0, 0);
+    // el WiFi del launcher sigue prendido para una app con permiso WiFi (~50 KB): si el gateway está
+    // apagado se apaga ya; si está prendido y la RAM no alcanza, también, y la app sigue sin gateway
+    loadSettings();
+    if (!wifiMqtt && cpos_api->net.status() != 3) cpos_api->net.mode(0);
+    bool ok = spr.createSprite(240, BAND_H) && allocState();
+    if (!ok && cpos_api->net.mode(0) == 0) {
+        wifiMqtt = false;
+        ok = (spr.getBuffer() || spr.createSprite(240, BAND_H)) && allocState();
+        if (ok) showToast("WiFi apagado: no alcanza la RAM");
+    }
+    if (!ok) {
+        char b[40];
+        snprintf(b, sizeof(b), "Sin memoria (%u KB libres)", (unsigned)(cpos_api->free_heap() / 1024));
+        if (spr.getBuffer()) {
+            spr.oy = 0;
+            spr.fillSprite(C_BG);
+            spr.setTextColor(C_RED);
+            spr.drawCenterString(b, 120, 16);
+            spr.pushSprite(0, 45);
+        }
         for (;;) delay(1000);
     }
     startAll();
-    startMqtt();
+    if (wifiMqtt) startMqtt();
     if (!radioUp) showToast(radioErr == -2 ? "No se encontró el Cap LoRa-1262" : "Radio LoRa no disponible");
 }
 

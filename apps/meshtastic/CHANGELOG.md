@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.3
+- Fix "Sin memoria" al abrir: con permiso WiFi el OS deja prendido el WiFi del launcher (~50 KB).
+  Con el gateway apagado la app lo apaga al arrancar; con el gateway prendido, si la RAM no alcanza,
+  apaga el WiFi y sigue sin gateway (aviso en pantalla) en vez de quedar bloqueada.
+- Menos RAM: canvas en 3 franjas (22 KB), hasta 40 nodos, 25 mensajes, pila 10 KB, cola MQTT de 4;
+  la tarea MQTT solo arranca con el gateway activo. Si igual falta, la pantalla muestra los KB libres.
+- Necesita CardputerOS 0.8.7 (net.mode(0) apaga el WiFi y libera su RAM).
+
 ## 0.2.2
 - La pantalla se dibuja en dos franjas de 240x68: el canvas usa 32 KB en vez de 64 KB, RAM que queda
   para el WiFi del gateway (antes: "sin memoria").

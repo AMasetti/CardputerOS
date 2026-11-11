@@ -76,7 +76,7 @@ static const char *TAG = "lora";
 #define IRQ_CRC_ERR      0x0040
 #define IRQ_TIMEOUT      0x0200
 
-#define RX_Q 16
+#define RX_Q 8
 #define TX_Q 8
 #define TX_TIMEOUT_MS 6000
 #define BUSY_MAX_MS 3000 /* a header seen this long ago without a packet is stale */

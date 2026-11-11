@@ -185,7 +185,7 @@ typedef struct {
 } cpos_ap_t;
 
 typedef struct {
-    int (*mode)(int sta);                      /* start/stop the radio */
+    int (*mode)(int sta);                      /* start/stop the radio; 0 ok. Stopping frees the driver's RAM (minor 7) */
     int (*scan_start)(int async);              /* returns count when sync, 0 when async */
     int (*scan_count)(void);                   /* -1 running, >=0 done */
     int (*scan_get)(int i, cpos_ap_t *out);

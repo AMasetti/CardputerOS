@@ -259,7 +259,10 @@ int cpos_net_background_busy(void) { return s_bg_running; }
 
 static int n_mode(int sta) {
     NEED_WIFI(-1);
-    if (sta && cpos_wifi_ensure()) return -1;
+    if (sta) return cpos_wifi_ensure() ? -1 : 0;
+    /* off: release the driver's RAM (~50 KB); not while the background connect is using it */
+    if (cpos_net_background_busy()) return -1;
+    cpos_wifi_stop();
     return 0;
 }
 static int n_scan_start(int async) {

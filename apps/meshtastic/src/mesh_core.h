@@ -667,7 +667,7 @@ struct Platform {
 
 class Router {
   public:
-    static constexpr int MAX_NODES = 60;
+    static constexpr int MAX_NODES = 40;
     static constexpr int SEEN = 96;
     static constexpr int OUTQ = 8;
     static constexpr int PENDING = 6;

@@ -4,7 +4,7 @@ Nodo [Meshtastic](https://meshtastic.org) en el Cardputer-Adv con el **Cap LoRa-
 (SX1262 + GNSS ATGM336H). Habla con cualquier nodo Meshtastic 2.x: celulares con la app oficial,
 T-Beam, Heltec, RAK, otros Cardputer.
 
-Necesita CardputerOS 0.8.4 o posterior (ABI 1.7: servicio de radio LoRa y GNSS en el OS).
+Necesita CardputerOS 0.8.7 o posterior (ABI 1.7: servicio de radio LoRa y GNSS en el OS).
 
 ## Argentina
 
