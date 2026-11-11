@@ -13,6 +13,11 @@
 #include "mbedtls/aes.h"
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
+#include "esp_heap_caps.h"
+#include "esp_timer.h"
+#include "host/ble_gatt.h"
+#include "services/gap/ble_svc_gap.h"
+#include "services/gatt/ble_svc_gatt.h"
 #include <string.h>
 
 static const char *TAG = "ble";
@@ -138,8 +143,9 @@ static void host_task(void *arg) {
 
 static void b_end(void);
 
+static int s_srv_active(void);
 static int b_begin(void) {
-    if (!cpos_has_perm(CPOS_PERM_BLE)) return 0;
+    if (!cpos_has_perm(CPOS_PERM_BLE) || s_srv_active()) return 0;
 #ifdef CONFIG_CPOS_EMULATOR
     return 1; /* no radio in the emulator: scans return a few fake robots */
 #endif
@@ -406,6 +412,261 @@ static int c_aes_ecb(const uint8_t *key, int bits, int enc, const uint8_t in[16]
     return rc;
 }
 
+
+/* ---- GATT server (minor 8) -------------------------------------------------------------------------
+ * The app describes one service; the stack is started in peripheral mode with it, advertising the
+ * service UUID (scan response: the name). Values cross between the NimBLE host task and the app
+ * through small locked queues, so no app code runs on the BLE task. */
+#define SRV_WQ 4        /* writes waiting for the app */
+#define SRV_RQ 4        /* values waiting to be read, per characteristic */
+
+typedef struct { uint8_t chr; uint16_t len; uint8_t data[CPOS_GATT_MAX_VALUE]; } srv_val_t;
+
+static int s_srv;                              /* serving (peripheral mode) */
+static int s_srv_n;
+static uint8_t s_srv_flags[CPOS_GATT_MAX_CHR];
+static ble_uuid128_t s_srv_uuid, s_chr_uuid[CPOS_GATT_MAX_CHR];
+static struct ble_gatt_chr_def s_chr_defs[CPOS_GATT_MAX_CHR + 1];
+static struct ble_gatt_svc_def s_svc_defs[2];
+static uint16_t s_val_handle[CPOS_GATT_MAX_CHR];
+static srv_val_t *s_wq;                        /* SRV_WQ */
+static int s_wq_head, s_wq_n;
+static srv_val_t *s_rq;                        /* SRV_RQ per characteristic */
+static int s_rq_head[CPOS_GATT_MAX_CHR], s_rq_n[CPOS_GATT_MAX_CHR];
+static srv_val_t *s_cur;                       /* value being read (long reads come in pieces) */
+static volatile uint16_t s_srv_conn = NO_CONN;
+static volatile uint32_t s_last_write_ms;
+static char s_srv_name[30];
+
+static uint32_t ms_now(void) { return (uint32_t)(esp_timer_get_time() / 1000); }
+
+static void srv_advertise(void);
+
+static int srv_gap_event(struct ble_gap_event *ev, void *arg) {
+    switch (ev->type) {
+    case BLE_GAP_EVENT_CONNECT:
+        if (ev->connect.status == 0) s_srv_conn = ev->connect.conn_handle;
+        else srv_advertise();
+        break;
+    case BLE_GAP_EVENT_DISCONNECT:
+        s_srv_conn = NO_CONN;
+        taskENTER_CRITICAL(&s_mux);
+        s_wq_n = 0;
+        for (int i = 0; i < CPOS_GATT_MAX_CHR; i++) s_rq_n[i] = 0;
+        taskEXIT_CRITICAL(&s_mux);
+        srv_advertise();
+        break;
+    case BLE_GAP_EVENT_ADV_COMPLETE:
+        if (s_srv_conn == NO_CONN) srv_advertise();
+        break;
+    default:
+        break;
+    }
+    return 0;
+}
+
+static void srv_advertise(void) {
+    if (!s_srv || !s_synced) return;
+    struct ble_hs_adv_fields f = {0};
+    f.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
+    f.uuids128 = &s_srv_uuid;
+    f.num_uuids128 = 1;
+    f.uuids128_is_complete = 1;
+    ble_gap_adv_set_fields(&f);
+    struct ble_hs_adv_fields r = {0};
+    r.name = (const uint8_t *)s_srv_name;
+    r.name_len = strlen(s_srv_name);
+    r.name_is_complete = 1;
+    ble_gap_adv_rsp_set_fields(&r);
+    struct ble_gap_adv_params ap = {.conn_mode = BLE_GAP_CONN_MODE_UND, .disc_mode = BLE_GAP_DISC_MODE_GEN};
+    ble_gap_adv_start(s_own_addr_type, NULL, BLE_HS_FOREVER, &ap, srv_gap_event, NULL);
+}
+
+static void srv_on_sync(void) {
+    ble_hs_id_infer_auto(0, &s_own_addr_type);
+    s_synced = 1;
+    srv_advertise();
+}
+
+static int srv_access(uint16_t conn, uint16_t attr, struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    int i = (int)(intptr_t)arg;
+    if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
+        srv_val_t v = {.chr = (uint8_t)i};
+        uint16_t len = 0;
+        if (ble_hs_mbuf_to_flat(ctxt->om, v.data, sizeof(v.data), &len)) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+        v.len = len;
+        int ok = 0;
+        taskENTER_CRITICAL(&s_mux);
+        if (s_wq_n < SRV_WQ) {
+            s_wq[(s_wq_head + s_wq_n) % SRV_WQ] = v;
+            s_wq_n++;
+            ok = 1;
+        }
+        taskEXIT_CRITICAL(&s_mux);
+        s_last_write_ms = ms_now();
+        return ok ? 0 : BLE_ATT_ERR_PREPARE_QUEUE_FULL;
+    }
+    if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
+        srv_val_t *cur = &s_cur[i];
+        /* a long read arrives in several requests: only the first one (fresh mbuf with the full packet
+           header) takes the next value, the rest continue the same one */
+        if ((s_srv_flags[i] & CPOS_GATT_READ) && ctxt->om->om_pkthdr_len > 8) {
+            /* right after a write the app is preparing the answer: give it a moment */
+            for (int t = 0; t < 100 && s_rq_n[i] == 0 && ms_now() - s_last_write_ms < 1000; t++) vTaskDelay(pdMS_TO_TICKS(5));
+            taskENTER_CRITICAL(&s_mux);
+            if (s_rq_n[i]) {
+                *cur = s_rq[i * SRV_RQ + s_rq_head[i]];
+                s_rq_head[i] = (s_rq_head[i] + 1) % SRV_RQ;
+                s_rq_n[i]--;
+            } else {
+                cur->len = 0;
+            }
+            taskEXIT_CRITICAL(&s_mux);
+        }
+        return os_mbuf_append(ctxt->om, cur->data, cur->len) ? BLE_ATT_ERR_INSUFFICIENT_RES : 0;
+    }
+    return BLE_ATT_ERR_UNLIKELY;
+}
+
+static void srv_free(void) {
+    heap_caps_free(s_wq);
+    heap_caps_free(s_rq);
+    heap_caps_free(s_cur);
+    s_wq = s_rq = s_cur = NULL;
+    s_srv = 0;
+    s_srv_conn = NO_CONN;
+}
+
+static void s_stop(void) {
+    if (!s_srv) return;
+    if (s_up) {
+        ble_gap_adv_stop();
+        if (s_srv_conn != NO_CONN) {
+            ble_gap_terminate(s_srv_conn, BLE_ERR_REM_USER_CONN_TERM);
+            vTaskDelay(pdMS_TO_TICKS(200));
+        }
+        if (nimble_port_stop() == 0) nimble_port_deinit();
+        s_up = s_synced = 0;
+    }
+    srv_free();
+    ESP_LOGI(TAG, "server down (free heap %u)", (unsigned)esp_get_free_heap_size());
+}
+
+static int s_serve(const char *name, const uint8_t svc_uuid[16], const cpos_gatt_chr_t *chrs, int n) {
+    if (!cpos_has_perm(CPOS_PERM_BLE) || !svc_uuid || !chrs || n < 1 || n > CPOS_GATT_MAX_CHR) return -1;
+#ifdef CONFIG_CPOS_EMULATOR
+    return -2; /* no radio in the emulator */
+#endif
+    if (s_srv) s_stop();
+    if (s_up) b_end(); /* the central/observer stack goes */
+    s_wq = heap_caps_calloc(SRV_WQ, sizeof(srv_val_t), MALLOC_CAP_INTERNAL);
+    s_rq = heap_caps_calloc(SRV_RQ * n, sizeof(srv_val_t), MALLOC_CAP_INTERNAL);
+    s_cur = heap_caps_calloc(n, sizeof(srv_val_t), MALLOC_CAP_INTERNAL);
+    if (!s_wq || !s_rq || !s_cur) { srv_free(); return -2; }
+    s_wq_head = s_wq_n = 0;
+    for (int i = 0; i < CPOS_GATT_MAX_CHR; i++) s_rq_head[i] = s_rq_n[i] = 0;
+    strlcpy(s_srv_name, name && name[0] ? name : "CardputerOS", sizeof(s_srv_name));
+
+    s_srv_uuid.u.type = BLE_UUID_TYPE_128;
+    memcpy(s_srv_uuid.value, svc_uuid, 16);
+    memset(s_chr_defs, 0, sizeof(s_chr_defs));
+    for (int i = 0; i < n; i++) {
+        s_chr_uuid[i].u.type = BLE_UUID_TYPE_128;
+        memcpy(s_chr_uuid[i].value, chrs[i].uuid, 16);
+        s_srv_flags[i] = chrs[i].flags;
+        ble_gatt_chr_flags f = 0;
+        if (chrs[i].flags & (CPOS_GATT_READ | CPOS_GATT_NOTIFY)) f |= BLE_GATT_CHR_F_READ;
+        if (chrs[i].flags & CPOS_GATT_WRITE) f |= BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP;
+        if (chrs[i].flags & CPOS_GATT_NOTIFY) f |= BLE_GATT_CHR_F_NOTIFY;
+        s_chr_defs[i] = (struct ble_gatt_chr_def){.uuid = &s_chr_uuid[i].u, .access_cb = srv_access,
+                                                  .arg = (void *)(intptr_t)i, .flags = f, .val_handle = &s_val_handle[i]};
+    }
+    s_srv_n = n;
+    memset(s_svc_defs, 0, sizeof(s_svc_defs));
+    s_svc_defs[0] = (struct ble_gatt_svc_def){.type = BLE_GATT_SVC_TYPE_PRIMARY, .uuid = &s_srv_uuid.u, .characteristics = s_chr_defs};
+
+    if (!s_done) s_done = xSemaphoreCreateBinary();
+    if (nimble_port_init() != ESP_OK) { srv_free(); return -2; }
+    ble_svc_gap_init();
+    ble_svc_gatt_init();
+    if (ble_gatts_count_cfg(s_svc_defs) || ble_gatts_add_svcs(s_svc_defs)) {
+        nimble_port_deinit();
+        srv_free();
+        return -2;
+    }
+    ble_svc_gap_device_name_set(s_srv_name);
+    ble_att_set_preferred_mtu(CPOS_GATT_MAX_VALUE + 5);
+    ble_hs_cfg.sync_cb = srv_on_sync;
+    ble_hs_cfg.reset_cb = on_reset;
+    s_srv = 1;
+    s_up = 1;
+    nimble_port_freertos_init(host_task);
+    for (int i = 0; i < 60 && !s_synced; i++) vTaskDelay(pdMS_TO_TICKS(50));
+    if (!s_synced) { s_stop(); return -2; }
+    ESP_LOGI(TAG, "serving \"%s\" (free heap %u)", s_srv_name, (unsigned)esp_get_free_heap_size());
+    return 0;
+}
+
+static int s_srv_active(void) { return s_srv; }
+static int s_connected(void) { return s_srv && s_srv_conn != NO_CONN; }
+
+static int s_written(int *chr, uint8_t *buf, size_t max) {
+    cpos_check_exit();
+    int len = -1;
+    if (!s_srv || !buf) return -1;
+    taskENTER_CRITICAL(&s_mux);
+    if (s_wq_n) {
+        srv_val_t *v = &s_wq[s_wq_head];
+        len = v->len < max ? v->len : max;
+        memcpy(buf, v->data, len);
+        if (chr) *chr = v->chr;
+        s_wq_head = (s_wq_head + 1) % SRV_WQ;
+        s_wq_n--;
+    }
+    taskEXIT_CRITICAL(&s_mux);
+    return len;
+}
+
+static int s_push(int chr, const uint8_t *data, size_t len) {
+    if (!s_srv || chr < 0 || chr >= s_srv_n || len > CPOS_GATT_MAX_VALUE || (len && !data)) return -1;
+    int ok = -1;
+    taskENTER_CRITICAL(&s_mux);
+    if (s_rq_n[chr] < SRV_RQ) {
+        srv_val_t *v = &s_rq[chr * SRV_RQ + (s_rq_head[chr] + s_rq_n[chr]) % SRV_RQ];
+        v->chr = chr;
+        v->len = len;
+        memcpy(v->data, data, len);
+        s_rq_n[chr]++;
+        ok = 0;
+    }
+    taskEXIT_CRITICAL(&s_mux);
+    return ok;
+}
+
+static int s_queued(int chr) { return s_srv && chr >= 0 && chr < s_srv_n ? s_rq_n[chr] : 0; }
+
+static int s_notify(int chr, const uint8_t *data, size_t len) {
+    if (!s_srv || chr < 0 || chr >= s_srv_n || len > CPOS_GATT_MAX_VALUE) return -1;
+    taskENTER_CRITICAL(&s_mux);
+    s_cur[chr].len = len; /* also what a plain read of this characteristic returns */
+    memcpy(s_cur[chr].data, data, len);
+    taskEXIT_CRITICAL(&s_mux);
+    if (s_srv_conn == NO_CONN) return 0;
+    struct os_mbuf *om = ble_hs_mbuf_from_flat(data, len);
+    if (!om) return -1;
+    return ble_gatts_notify_custom(s_srv_conn, s_val_handle[chr], om) ? -1 : 0;
+}
+
+void cpos_ble_srv_fill(cpos_ble_srv_api_t *a) {
+    a->serve = s_serve;
+    a->stop = s_stop;
+    a->connected = s_connected;
+    a->written = s_written;
+    a->push = s_push;
+    a->queued = s_queued;
+    a->notify = s_notify;
+}
+
 void cpos_ble_fill(cpos_ble_api_t *a, cpos_crypto_api_t *c) {
     a->begin = b_begin;
     a->end = b_end;
@@ -426,4 +687,7 @@ void cpos_ble_fill(cpos_ble_api_t *a, cpos_crypto_api_t *c) {
     c->aes_ecb = c_aes_ecb;
 }
 
-void cpos_app_cleanup_ble(app_ctx_t *a) { b_end(); }
+void cpos_app_cleanup_ble(app_ctx_t *a) {
+    s_stop();
+    b_end();
+}

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.5
+- La configuración y la identidad se comparten con Meshtastic BT (la versión Bluetooth para la app del
+  teléfono) por la SD: /meshtastic/settings.bin. Es el mismo nodo con cualquiera de las dos.
+
 ## 0.2.4
 - Diagnóstico del gateway en Config > Gateway WiFi: "conectado · N env." (mensajes publicados en
   mqtt.meshtastic.org) o el último error (DNS, TCP 1883, sin CONNACK, rechazado, envío, sin ping).

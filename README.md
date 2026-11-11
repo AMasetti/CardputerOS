@@ -51,6 +51,7 @@ Install any of these from the on-device store (or copy the `.elf` to `/apps/` on
 | App | What it does |
 |---|---|
 | [`meshtastic`](apps/meshtastic) | Meshtastic node with the Cap LoRa-1262: channel chat, direct messages, node list with distance, GPS, relaying. Set up for Argentina (ANZ 915-928 MHz, LongFast) |
+| [`meshtastic-ble`](apps/meshtastic-ble) | Headless Meshtastic node for the official iPhone/Android app over Bluetooth: the Cardputer is the radio and GPS, the phone is the screen. Shares identity and nodes with `meshtastic` |
 | [`robot-control`](apps/robot-control) | One remote for toy robots and drones: Sphero BB-8, Ollie, R2-D2, R2-Q5, BB-9E, BOLT (BLE), Parrot Rolling Spider (BLE) and Jumping Sumo (WiFi, with live video) |
 | [`ble-sentinel`](apps/ble-sentinel) | Passive BLE detector: Remote ID drones, smart glasses, trackers and more, by manufacturer-data signature |
 | [`mp3-player`](apps/mp3-player) | iPod-style MP3 player with artists, albums, playlists and cover art |

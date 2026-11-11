@@ -40,7 +40,7 @@ This replaces the phased plan in `research.md`: the decisions below are what the
 | Speaker / microphone ES8311 (I2S) | `cpos_core/audio.c`, 8-voice mixer; one of the two open at a time | `audio_out`, `audio_in` |
 | IR LED (GPIO44), Grove/EXT pins, PWM | `cpos_core/gpio_svc.c` | `ir`, `gpio` |
 | Preferences | `api.c`, NVS namespace per app, hashed keys | always |
-| BLE | `cpos_core/ble.c`, NimBLE central/observer | `ble` |
+| BLE | `cpos_core/ble.c`, NimBLE central/observer, or a GATT server for phone apps (ABI 1.8) | `ble` |
 | LoRa SX1262 (Cap LoRa-1262: SPI3 shared with the microSD, NSS 5, RST 3, BUSY 6, DIO1 4) | `cpos_core/lora.c`, OS task, RX/TX queues | `lora` |
 | GNSS ATGM336H (Cap LoRa-1262, UART1 TX 13 / RX 15, NMEA) | `cpos_core/lora.c` | `gnss` |
 

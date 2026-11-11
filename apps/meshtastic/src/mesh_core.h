@@ -652,6 +652,8 @@ class Listener {
     virtual void on_text(const Header &h, const Data &d, const Node *from) = 0;
     virtual void on_ack(uint32_t id, bool ok, uint32_t error) = 0; // error: RoutingError
     virtual void on_node(const Node &n) = 0;                         // node info, position or metrics changed
+    // every decoded packet for us or broadcast, before it is handled (the phone API forwards them all)
+    virtual void on_packet(const Header &, const Data &, int16_t /*rssi*/, float /*snr*/) {}
     virtual ~Listener() {}
 };
 
@@ -726,7 +728,8 @@ class Router {
 
     // ---- sending ----
     // returns the packet id (0 when it could not be queued)
-    uint32_t send_data(uint32_t to, Data &d, bool want_ack, uint32_t delay_ms = 0) {
+    // id 0: a new one (a phone gives its own ids)
+    uint32_t send_data(uint32_t to, Data &d, bool want_ack, uint32_t delay_ms = 0, uint32_t id = 0) {
         uint8_t buf[MAX_PACKET];
         d.has_bitfield = true;
         d.bitfield = (d.bitfield & ~1u) | (ok_to_mqtt ? 1u : 0u);
@@ -735,7 +738,7 @@ class Router {
         Header h;
         h.to = to;
         h.from = me;
-        h.id = new_id();
+        h.id = id ? id : new_id();
         h.flags = Header::make_flags(hop_limit, want_ack, hop_limit);
         h.channel = hash_;
         h.next_hop = 0;
@@ -985,6 +988,7 @@ class Router {
         n->via_mqtt = h.via_mqtt();
         if (h.hop_start() && h.hop_start() >= h.hop_limit()) n->hops = (int8_t)(h.hop_start() - h.hop_limit());
         bool changed = false;
+        listener_->on_packet(h, d, rssi, snr);
 
         switch (d.portnum) {
         case PORT_TEXT:

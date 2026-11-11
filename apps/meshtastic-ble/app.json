@@ -1,0 +1,16 @@
+{
+  "name": "meshtastic-ble",
+  "displayName": "Meshtastic BT",
+  "version": "0.1.0",
+  "description": "Nodo Meshtastic sin pantalla para usar con la app oficial del iPhone o Android por Bluetooth: el Cardputer pone la radio LoRa y el GPS, el teléfono el chat, el mapa y la configuración. Comparte identidad y nodos con la app Meshtastic.",
+  "perms": [
+    "lora",
+    "gnss",
+    "ble",
+    "sd"
+  ],
+  "stack": 10240,
+  "include": [
+    "../meshtastic/src"
+  ]
+}

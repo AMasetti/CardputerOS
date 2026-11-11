@@ -57,6 +57,7 @@ void cpos_boot_check(char *msg, size_t n);           /* crash report of the prev
 void cpos_net_fill(cpos_net_api_t *n);
 void cpos_audio_fill(cpos_audio_api_t *a);
 void cpos_ble_fill(cpos_ble_api_t *a, cpos_crypto_api_t *c);
+void cpos_ble_srv_fill(cpos_ble_srv_api_t *a);
 void cpos_app_cleanup_ble(app_ctx_t *a);
 void cpos_rtos_fill(cpos_rtos_api_t *a);
 void cpos_rtos_exit_point(void);

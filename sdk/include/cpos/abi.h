@@ -26,7 +26,7 @@ extern "C" {
 #endif
 
 #define CPOS_ABI_MAJOR 1
-#define CPOS_ABI_MINOR 7
+#define CPOS_ABI_MINOR 8
 
 /* ---- permissions (declared in the app header) ----------------------------- */
 #define CPOS_PERM_SD        (1u << 0)
@@ -351,6 +351,33 @@ typedef struct {
     uintptr_t reserved[3];
 } cpos_lora_api_t;
 
+/* ---- Bluetooth LE GATT server (minor 8): the app offers one service, the OS advertises it -------------
+ * For apps that a phone connects to (the Meshtastic app). Needs the "ble" permission; the central/observer
+ * functions of the ble table are not available while serving. One phone at a time, no pairing PIN.
+ * READ characteristics hand out the values the app queued, one per read (an empty value when none is
+ * left; right after a write the read waits up to 500 ms for the app to answer). WRITE characteristics
+ * queue what the phone writes. NOTIFY characteristics send a value to the subscribed phone. */
+#define CPOS_GATT_READ   0x01
+#define CPOS_GATT_WRITE  0x02
+#define CPOS_GATT_NOTIFY 0x04
+#define CPOS_GATT_MAX_CHR 4
+#define CPOS_GATT_MAX_VALUE 512
+typedef struct {
+    uint8_t uuid[16];  /* 128-bit, little endian (as on the air) */
+    uint8_t flags;     /* CPOS_GATT_* */
+} cpos_gatt_chr_t;
+
+typedef struct {
+    int (*serve)(const char *name, const uint8_t svc_uuid[16], const cpos_gatt_chr_t *chrs, int n); /* 0 = advertising */
+    void (*stop)(void);
+    int (*connected)(void);                                   /* 1 while a phone is connected */
+    int (*written)(int *chr, uint8_t *buf, size_t max);       /* bytes of the next write, -1 none */
+    int (*push)(int chr, const uint8_t *data, size_t len);    /* queue a value for reads: 0 ok, -1 full */
+    int (*queued)(int chr);                                   /* values waiting to be read */
+    int (*notify)(int chr, const uint8_t *data, size_t len);  /* 0 sent (or nobody subscribed) */
+    uintptr_t reserved[4];
+} cpos_ble_srv_api_t;
+
 /* ---- the table ------------------------------------------------------------------- */
 struct cpos_api {
     uint32_t abi_major;
@@ -393,6 +420,8 @@ struct cpos_api {
     cpos_intent_api_t intent;
     /* minor 5 */
     cpos_lora_api_t lora;
+    /* minor 8 */
+    cpos_ble_srv_api_t ble_srv;
 };
 
 #ifdef __cplusplus

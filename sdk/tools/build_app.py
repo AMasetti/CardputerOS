@@ -182,7 +182,10 @@ def main():
     if "ble" in meta.get("perms", []):
         a.abi_minor = max(a.abi_minor, 1)
     # tasks, MP3 and JPEG decoding arrived in minor 2
-    src_text = "".join(f.read_text(errors="ignore") for f in (appdir / "src").rglob("*") if f.suffix in (".c", ".cpp", ".h", ".hpp", ".ino"))
+    # "include": extra header directories (relative to the app), e.g. headers shared with another app
+    includes = [(appdir / d).resolve() for d in meta.get("include", [])]
+    src_dirs = [appdir / "src", *includes]
+    src_text = "".join(f.read_text(errors="ignore") for d in src_dirs for f in d.rglob("*") if f.suffix in (".c", ".cpp", ".h", ".hpp", ".ino"))
     if any(k in src_text for k in ("xTaskCreate", "AudioGeneratorMP3", "drawJpg", "cpos_api->rtos", "cpos_api->media")):
         a.abi_minor = max(a.abi_minor, 2)
     # stream sockets arrived in minor 3
@@ -194,6 +197,9 @@ def main():
     # the LoRa radio and GNSS arrived in minor 5
     if {"lora", "gnss"} & set(meta.get("perms", [])) or "cpos_api->lora" in src_text:
         a.abi_minor = max(a.abi_minor, 5)
+    # the BLE GATT server arrived in minor 8
+    if "ble_srv" in src_text:
+        a.abi_minor = max(a.abi_minor, 8)
     # net.resolve and connect("") to the saved network arrived in minor 7
     if "net.resolve" in src_text:
         a.abi_minor = max(a.abi_minor, 7)
@@ -225,7 +231,7 @@ __attribute__((section(".cpos_app"), used)) const cpos_app_header_t cpos_app_hea
     # code can be cut between functions (see code_splits)
     common = ["-Os", "-mlongcalls", "-mtext-section-literals", "-ffunction-sections", "-fdata-sections", "-fno-common",
               "-I", str(ROOT / "sdk/include"), "-I", str(ROOT / "sdk/shim/include"),
-              "-I", str(appdir / "src"), "-DARDUINO=10812", "-DCPOS_APP=1", f'-DAPP_VERSION="{version}"',
+              "-I", str(appdir / "src"), *[a for d in includes for a in ("-I", str(d))], "-DARDUINO=10812", "-DCPOS_APP=1", f'-DAPP_VERSION="{version}"',
               "-Wall", "-Wno-unused-function", "-Wno-unused-variable", "-Wno-psabi"]
     # _GLIBCXX_ASSERTIONS makes std::string instantiate in the app instead of importing libstdc++'s copy
     cxxflags = common + ["-std=gnu++17", "-fno-exceptions", "-fno-rtti", "-fno-threadsafe-statics", "-Wno-reorder", "-D_GLIBCXX_ASSERTIONS"]
