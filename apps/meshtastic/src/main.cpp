@@ -41,7 +41,22 @@ static const uint16_t C_RED = lgfx::color565(255, 90, 90);
 static const uint16_t C_AMBER = lgfx::color565(255, 190, 70);
 static const uint16_t C_SEL = lgfx::color565(32, 70, 96);
 
-static M5Canvas spr(&M5Cardputer.Display);
+// La pantalla se dibuja en dos franjas de 240x68 con el mismo código: el canvas ocupa 32 KB en vez de
+// 64 KB, y esa RAM es la que necesita el WiFi del gateway. Cada franja corre el dibujo completo con las
+// coordenadas desplazadas; lo que cae fuera se recorta.
+static constexpr int BAND_H = 68;
+class BandCanvas : public M5Canvas {
+  public:
+    using M5Canvas::M5Canvas;
+    int oy = 0;
+    int drawString(const char *s, int x, int y) { return M5Canvas::drawString(s, x, y - oy); }
+    int drawCenterString(const char *s, int x, int y) { return M5Canvas::drawCenterString(s, x, y - oy); }
+    void fillRect(int x, int y, int w, int h, uint32_t c) { M5Canvas::fillRect(x, y - oy, w, h, c); }
+    void fillRoundRect(int x, int y, int w, int h, int r, uint32_t c) { M5Canvas::fillRoundRect(x, y - oy, w, h, r, c); }
+    void drawRoundRect(int x, int y, int w, int h, int r, uint32_t c) { M5Canvas::drawRoundRect(x, y - oy, w, h, r, c); }
+    void fillCircle(int x, int y, int r, uint32_t c) { M5Canvas::fillCircle(x, y - oy, r, c); }
+};
+static BandCanvas spr(&M5Cardputer.Display);
 static Preferences prefs;
 
 // ---- ajustes -----------------------------------------------------------------------------------------
@@ -521,10 +536,9 @@ static void mqttTask(void *) {
     for (;;) {
         if (!wifiMqtt) { mqttState = MQ_OFF; delay(1000); continue; }
         if (cpos_api->net.status() != 3) { // la red guardada en System > WiFi
-            // el driver de WiFi necesita ~50 KB: sin eso no se intenta (el OS también se niega)
-            if (cpos_api->free_heap() < 60 * 1024) { mqttState = MQ_NO_MEM; delay(10000); continue; }
+            // el OS prende el WiFi solo si queda RAM para el driver (~50 KB) y lo dice con -1
+            if (cpos_api->net.connect("", "") != 0) { mqttState = MQ_NO_MEM; delay(10000); continue; }
             mqttState = MQ_NO_WIFI;
-            cpos_api->net.connect("", "");
             delay(3000);
             continue;
         }
@@ -668,26 +682,27 @@ static size_t utf8Len(const char *p) {
 
 // corta s en líneas de ancho w; devuelve la cantidad (como mucho max) y los comienzos en starts/lens
 static int wrap(const char *s, int w, const char **starts, int *lens, int max) {
+    // ancho acumulado carácter a carácter (fuentes sin kerning): una medición por carácter, no por prefijo
     int n = 0;
     const char *p = s;
-    char tmp[MAX_TEXT + 1];
     while (*p && n < max) {
         while (*p == ' ') p++;
         if (!*p) break;
         const char *best = nullptr;
         const char *q = p;
-        while (*q) {
-            const char *nq = q + utf8Len(q);
-            size_t l = nq - p;
-            memcpy(tmp, p, l);
-            tmp[l] = 0;
-            if (spr.textWidth(tmp) > w) break;
-            if (*nq == ' ' || *nq == 0) best = nq;
-            q = nq;
-            if (*q == '\n') break;
+        int width = 0;
+        while (*q && *q != '\n') {
+            size_t cl = utf8Len(q);
+            char ch[5];
+            memcpy(ch, q, cl);
+            ch[cl] = 0;
+            int cw = spr.textWidth(ch);
+            if (width + cw > w && q > p) break;
+            width += cw;
+            q += cl;
+            if (*q == ' ' || *q == 0 || *q == '\n') best = q;
         }
-        const char *end = *q == 0 ? q : (best ? best : (q > p ? q : p + utf8Len(p)));
-        if (*q == '\n') end = q;
+        const char *end = (*q == 0 || *q == '\n') ? q : (best ? best : q);
         starts[n] = p;
         lens[n] = (int)(end - p);
         n++;
@@ -872,7 +887,7 @@ static void drawChat() {
         snprintf(b, sizeof(b), "%s %.3f MHz · %s", region().name, freqHz() / 1e6, preset().name);
         spr.drawCenterString(b, 120, radioUp ? 66 : 36);
     }
-    if (!radioUp) {
+    if (!radioUp && !any) {
         // diagnóstico del OS (expansor, BUSY, registro del SX1262, GPS), sobre los mensajes si los hay
         if (cpos_api->abi_minor >= 6 && cpos_api->lora.diag) cpos_api->lora.diag(radioDiag, sizeof(radioDiag));
         const char *st[4];
@@ -1050,7 +1065,8 @@ static void cfgValue(int i, char *b, size_t n) {
     case CF_WIFI:
         if (!wifiMqtt) snprintf(b, n, "no");
         else if (!mqttStarted) snprintf(b, n, "sí · OS sin soporte");
-        else snprintf(b, n, "%s", mqttState == MQ_UP ? "sí · conectado" : mqttState == MQ_NO_WIFI ? "sí · sin WiFi" : mqttState == MQ_NO_MEM ? "sí · sin memoria" : "sí · conectando");
+        else if (mqttState == MQ_NO_MEM) snprintf(b, n, "sin memoria (%u KB)", (unsigned)(cpos_api->free_heap() / 1024));
+        else snprintf(b, n, "%s", mqttState == MQ_UP ? "sí · conectado" : mqttState == MQ_NO_WIFI ? "sí · sin WiFi" : "sí · conectando");
         break;
     case CF_SOUND: snprintf(b, n, "%s", S.sound ? "sí" : "no"); break;
     default: b[0] = 0;
@@ -1355,7 +1371,7 @@ void setup() {
     auto cfg = M5.config();
     M5Cardputer.begin(cfg, true);
     M5Cardputer.Display.setRotation(1);
-    spr.createSprite(240, 135);
+    spr.createSprite(240, BAND_H);
     if (!allocState()) {
         spr.fillSprite(C_BG);
         spr.setTextColor(C_RED);
@@ -1376,18 +1392,21 @@ void loop() {
     saveStore();
     static uint32_t lastDraw = 0;
     if (needDraw || millis() - lastDraw > 1000) {
-        spr.fillSprite(C_BG);
-        if (screen == SCR_CHAT) drawChat();
-        else if (screen == SCR_NODES) drawNodes();
-        else drawConfig();
-        if (millis() < toastUntil) {
-            spr.setFont(FONT);
-            int w = spr.textWidth(toast) + 12;
-            spr.fillRoundRect(120 - w / 2, 56, w, 18, 4, C_ACCENT);
-            spr.setTextColor(C_BG);
-            spr.drawCenterString(toast, 120, 59);
+        for (int band = 0; band * BAND_H < 135; band++) {
+            spr.oy = band * BAND_H;
+            spr.fillSprite(C_BG);
+            if (screen == SCR_CHAT) drawChat();
+            else if (screen == SCR_NODES) drawNodes();
+            else drawConfig();
+            if (millis() < toastUntil) {
+                spr.setFont(FONT);
+                int w = spr.textWidth(toast) + 12;
+                spr.fillRoundRect(120 - w / 2, 56, w, 18, 4, C_ACCENT);
+                spr.setTextColor(C_BG);
+                spr.drawCenterString(toast, 120, 59);
+            }
+            spr.pushSprite(0, spr.oy);
         }
-        spr.pushSprite(0, 0);
         needDraw = false;
         lastDraw = millis();
     }

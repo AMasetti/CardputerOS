@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.2
+- La pantalla se dibuja en dos franjas de 240x68: el canvas usa 32 KB en vez de 64 KB, RAM que queda
+  para el WiFi del gateway (antes: "sin memoria").
+- El OS decide si hay RAM para el WiFi (CardputerOS 0.8.6); Config muestra la memoria libre si no alcanza.
+- Ajuste de líneas en tiempo lineal (antes medía el texto una vez por carácter).
+- Sin radio, el diagnóstico ya no tapa los mensajes del chat.
+
 ## 0.2.1
 - Fix: un mensaje recortado o con UTF-8 mal formado (llega de la red) hacía leer más allá del texto
   al acomodarlo en líneas y podía colgar o reiniciar el sistema.

@@ -211,7 +211,8 @@ typedef struct {
     int (*sock_send)(int fd, const void *buf, size_t len, int flags);
     int (*sock_recv)(int fd, void *buf, size_t len, int flags);
     /* minor 7: DNS lookup, IPv4 in network order; 0 ok. connect() with an empty ssid (also from
-       minor 7) joins the network saved in System > WiFi. */
+       minor 7) joins the network saved in System > WiFi in the background; -1 when the WiFi driver
+       cannot start (not enough RAM). */
     int (*resolve)(const char *host, uint32_t *ip);
 } cpos_net_api_t;
 

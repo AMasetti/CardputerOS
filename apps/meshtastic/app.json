@@ -1,7 +1,7 @@
 {
   "name": "meshtastic",
   "displayName": "Meshtastic",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Nodo Meshtastic con el Cap LoRa-1262: chat en el canal público y mensajes directos, lista de nodos con distancia, GPS y retransmisión. Configurado para Argentina (ANZ 915-928 MHz, LongFast).",
   "perms": [
     "lora",

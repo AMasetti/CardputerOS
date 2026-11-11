@@ -295,6 +295,7 @@ static int n_connect(const char *ssid, const char *pass) {
     NEED_WIFI(-1);
     if (!ssid || !ssid[0]) { /* the network saved in System > WiFi, in the background */
         if (cpos_wifi_is_connected()) return 0;
+        if (cpos_wifi_ensure()) return -1; /* not enough RAM for the driver */
         cpos_net_background_connect();
         return 0;
     }
