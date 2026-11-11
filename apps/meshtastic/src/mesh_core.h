@@ -484,14 +484,15 @@ struct Region {
     uint32_t start_khz, end_khz;
     int8_t max_power; // dBm allowed by the band plan
     const char *note;
+    uint8_t code;     // Config.LoRaConfig.RegionCode (map reports)
 };
 
 // Argentina: ENACOM allows spread-spectrum devices in 915-928 MHz, which is Meshtastic's ANZ plan
 // (and where the Argentine mesh lives). US (902-928) is offered for groups that use it, but its
 // default LongFast slot (906.875 MHz) falls in a segment Argentina assigned to other services.
 static const Region REGIONS[] = {
-    {"ANZ", 915000, 928000, 30, "Argentina/Brasil/AU/NZ 915-928"},
-    {"US", 902000, 928000, 30, "EE.UU. 902-928"},
+    {"ANZ", 915000, 928000, 30, "Argentina/Brasil/AU/NZ 915-928", 6},
+    {"US", 902000, 928000, 30, "EE.UU. 902-928", 1},
 };
 constexpr int NUM_REGIONS = sizeof(REGIONS) / sizeof(REGIONS[0]);
 
@@ -499,13 +500,13 @@ struct Preset {
     const char *name; // display name, also the default channel name
     uint32_t bw_hz;
     uint8_t sf, cr;
+    uint8_t code; // Config.LoRaConfig.ModemPreset (map reports)
 };
 
-// ModemPreset enum order of the firmware is not needed: presets are kept by name
 static const Preset PRESETS[] = {
-    {"LongFast", 250000, 11, 5},   {"LongSlow", 125000, 12, 8},   {"LongMod", 125000, 11, 8},
-    {"LongTurbo", 500000, 11, 8},  {"MediumSlow", 250000, 10, 5}, {"MediumFast", 250000, 9, 5},
-    {"ShortSlow", 250000, 8, 5},   {"ShortFast", 250000, 7, 5},   {"ShortTurbo", 500000, 7, 5},
+    {"LongFast", 250000, 11, 5, 0},   {"LongSlow", 125000, 12, 8, 1},   {"LongMod", 125000, 11, 8, 7},
+    {"LongTurbo", 500000, 11, 8, 9},  {"MediumSlow", 250000, 10, 5, 3}, {"MediumFast", 250000, 9, 5, 4},
+    {"ShortSlow", 250000, 8, 5, 5},   {"ShortFast", 250000, 7, 5, 6},   {"ShortTurbo", 500000, 7, 5, 8},
 };
 constexpr int NUM_PRESETS = sizeof(PRESETS) / sizeof(PRESETS[0]);
 
@@ -539,6 +540,96 @@ inline uint32_t slot_time_ms(const Preset &p) {
     return (sym_us * 5 / 2 + 7600) / 1000;
 }
 
+// ---- MQTT (what a gateway publishes, as the firmware does) -------------------------------------------
+// topic root: msh/<region>; packets go to <root>/2/e/<channel>/<gateway id>, map reports to <root>/2/map/
+constexpr uint32_t PORT_MAP_REPORT = 73;
+constexpr uint32_t MAP_PRECISION = 14; // firmware default for map reports (allowed 12..15)
+
+inline void pb_nested(PbWriter &w, uint32_t f, const PbWriter &inner) {
+    w.tag(f, 2);
+    w.varint(inner.len);
+    for (size_t i = 0; i < inner.len; i++) w.byte(inner.buf[i]);
+    if (!inner.ok) w.ok = false;
+}
+
+inline size_t wrap_envelope(const PbWriter &packet, const char *channel_id, const char *gateway_id, uint8_t *out, size_t cap) {
+    PbWriter e(out, cap);
+    pb_nested(e, 1, packet);
+    e.str(2, channel_id);
+    e.str(3, gateway_id);
+    return e.ok ? e.len : 0;
+}
+
+// a raw air packet (header + still encrypted payload) as an encrypted MeshPacket in a ServiceEnvelope
+inline size_t encode_envelope(const uint8_t *raw, size_t n, uint32_t rx_time, int16_t rssi, float snr, const char *channel_id,
+                              const char *gateway_id, uint8_t *out, size_t cap) {
+    if (n < HEADER_LEN) return 0;
+    Header h;
+    h.read(raw);
+    uint8_t pk[MAX_PACKET + 48];
+    PbWriter m(pk, sizeof(pk));
+    m.fixed32(1, h.from);
+    m.fixed32(2, h.to);
+    m.u32(3, h.channel);
+    m.bytes(5, raw + HEADER_LEN, n - HEADER_LEN);
+    m.fixed32(6, h.id);
+    m.fixed32(7, rx_time);
+    m.flt(8, snr);
+    m.u32(9, h.hop_limit());
+    m.boolean(10, h.want_ack());
+    m.i32(12, rssi);
+    m.u32(15, h.hop_start());
+    m.u32(18, h.next_hop);
+    m.u32(19, h.relay_node);
+    return wrap_envelope(m, channel_id, gateway_id, out, cap);
+}
+
+struct MapReport {
+    const char *long_name, *short_name;
+    uint32_t hw_model, region, modem_preset;
+    const char *firmware_version;
+    bool has_default_channel;
+    int32_t latitude_i, longitude_i, altitude; // full precision: reduced here
+    uint32_t num_online_local_nodes;
+};
+
+inline size_t encode_map_report(uint32_t from, const MapReport &r, const char *channel_id, const char *gateway_id, uint8_t *out,
+                                size_t cap) {
+    uint8_t mr[128];
+    PbWriter w(mr, sizeof(mr));
+    char ln[25];
+    strncpy(ln, r.long_name, sizeof(ln) - 1);
+    ln[sizeof(ln) - 1] = 0;
+    w.str(1, ln);
+    w.str(2, r.short_name);
+    w.u32(4, r.hw_model);
+    w.str(5, r.firmware_version);
+    w.u32(6, r.region);
+    w.u32(7, r.modem_preset);
+    w.boolean(8, r.has_default_channel);
+    int32_t lat = r.latitude_i, lon = r.longitude_i;
+    reduce_precision(lat, MAP_PRECISION);
+    reduce_precision(lon, MAP_PRECISION);
+    w.tag(9, 5);
+    for (int i = 0; i < 4; i++) w.byte((uint8_t)((uint32_t)lat >> (8 * i)));
+    w.tag(10, 5);
+    for (int i = 0; i < 4; i++) w.byte((uint8_t)((uint32_t)lon >> (8 * i)));
+    w.i32(11, r.altitude);
+    w.u32(12, MAP_PRECISION);
+    w.u32(13, r.num_online_local_nodes);
+    w.boolean(14, true); // has_opted_report_location
+    uint8_t db[160];
+    PbWriter d(db, sizeof(db));
+    d.u32(1, PORT_MAP_REPORT);
+    d.bytes(2, mr, w.len);
+    uint8_t pk[200];
+    PbWriter m(pk, sizeof(pk));
+    m.fixed32(1, from);
+    m.fixed32(2, BROADCAST);
+    pb_nested(m, 4, d);
+    return w.ok && d.ok ? wrap_envelope(m, channel_id, gateway_id, out, cap) : 0;
+}
+
 // ---- node database --------------------------------------------------------------------------------------
 struct Node {
     uint32_t num = 0;
@@ -570,6 +661,8 @@ struct Platform {
     AesEcbFn aes;
     int (*send)(const uint8_t *p, size_t n);       // hand a packet to the radio, 0 = queued
     int (*busy)(void);                             // the radio is receiving or sending
+    // optional: a packet worth publishing to MQTT (one we sent, or one heard that allows it); raw air bytes
+    void (*uplink)(const uint8_t *p, size_t n, int16_t rssi, float snr) = nullptr;
 };
 
 class Router {
@@ -655,6 +748,7 @@ class Router {
         // neighbour relays them (no retries, so a lone node does not keep the channel busy)
         if (want_ack || to == BROADCAST) track(h, buf, HEADER_LEN + n, want_ack && to != BROADCAST);
         stats.sent++;
+        if (pf_.uplink && ok_to_mqtt) pf_.uplink(buf, HEADER_LEN + n, 0, 0);
         return h.id;
     }
 
@@ -718,6 +812,9 @@ class Router {
         if (!decoded) stats.rx_foreign++;
 
         if (decoded && (h.to == me || h.to == BROADCAST)) deliver(h, d, rssi, snr);
+        // act as an MQTT gateway for what we can read and its sender allows (not what came from MQTT already)
+        if (decoded && pf_.uplink && ok_to_mqtt && d.has_bitfield && (d.bitfield & 1) && !h.via_mqtt() && d.portnum != PORT_ROUTING)
+            pf_.uplink(raw, len, rssi, snr);
 
         // relay: everything not addressed to us, while hops remain (managed flooding)
         if (rebroadcast && h.to != me && h.hop_limit() > 0 && (h.next_hop == 0 || h.next_hop == (uint8_t)(me & 0xFF))) {

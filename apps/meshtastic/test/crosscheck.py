@@ -10,7 +10,7 @@ sender as 8 bytes LE, AES-CTR) and parsed with meshtastic.protobuf.
 """
 import struct, sys
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from meshtastic.protobuf import mesh_pb2, portnums_pb2, telemetry_pb2
+from meshtastic.protobuf import mesh_pb2, mqtt_pb2, portnums_pb2, telemetry_pb2
 
 key = None
 seen = set()
@@ -19,6 +19,29 @@ for line in sys.stdin:
     data = bytes.fromhex(hexs)
     if tag == "KEY":
         key = data
+        continue
+    if tag == "ENV":  # encrypted packet as an MQTT gateway publishes it
+        env = mqtt_pb2.ServiceEnvelope()
+        env.ParseFromString(data)
+        mp = env.packet
+        assert env.channel_id == "LongFast" and env.gateway_id == "!0000cafe"
+        nonce = mp.id.to_bytes(8, "little") + getattr(mp, "from").to_bytes(8, "little")
+        inner = mesh_pb2.Data()
+        inner.ParseFromString(Cipher(algorithms.AES(key), modes.CTR(nonce)).decryptor().update(mp.encrypted))
+        assert getattr(mp, "from") == 0xCAFE and mp.channel == 8 and mp.hop_limit == 3 and mp.hop_start == 3 and mp.rx_rssi == -95
+        print("ENVELOPE", portnums_pb2.PortNum.Name(inner.portnum), "via", env.gateway_id)
+        seen.add("ENVELOPE")
+        continue
+    if tag == "MAP":
+        env = mqtt_pb2.ServiceEnvelope()
+        env.ParseFromString(data)
+        assert env.packet.decoded.portnum == portnums_pb2.MAP_REPORT_APP
+        m = mqtt_pb2.MapReport()
+        m.ParseFromString(env.packet.decoded.payload)
+        print("MAP_REPORT", m.long_name, m.short_name, m.latitude_i / 1e7, m.longitude_i / 1e7, m.position_precision,
+              mesh_pb2.HardwareModel.Name(m.hw_model))
+        assert m.position_precision == 14 and abs(m.latitude_i - -329442000) < (1 << 18) and m.hw_model == mesh_pb2.M5STACK_CARDPUTER_ADV
+        seen.add("MAP_REPORT")
         continue
     if tag != "PKT":
         continue
@@ -52,6 +75,6 @@ for line in sys.stdin:
         assert t.device_metrics.battery_level == 80 and t.device_metrics.uptime_seconds == 120
     seen.add(port)
 
-expected = {"TEXT_MESSAGE_APP", "NODEINFO_APP", "POSITION_APP", "TELEMETRY_APP"}
+expected = {"TEXT_MESSAGE_APP", "NODEINFO_APP", "POSITION_APP", "TELEMETRY_APP", "ENVELOPE", "MAP_REPORT"}
 assert seen == expected, seen
 print("crosscheck ok")

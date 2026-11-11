@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.0
+- Gateway WiFi propio: con la red guardada en System > WiFi, el nodo publica en mqtt.meshtastic.org
+  (msh/<región>/2/e/<canal>/<id>) sus paquetes cifrados, los de otros nodos que permiten MQTT, y un
+  map report (msh/<región>/2/map/, posición con 14 bits) si "Compartir posición" está activo. Así
+  aparece en los mapas públicos sin depender de otro gateway, incluso sin radio LoRa.
+- Indicador MQTT en la barra superior; ajuste "Gateway WiFi" (sí de fábrica).
+- Permiso nuevo: WiFi. Necesita CardputerOS 0.8.4 (ABI 1.7: DNS y conexión a la red guardada).
+
 ## 0.1.3
 - Los paquetes llevan la marca "OK to MQTT" (Data.bitfield bit 0): sin ella los gateways con firmware
   2.5+ no los suben a MQTT y el nodo no aparece en los mapas públicos. Ajuste "Subir a MQTT/mapa" (sí de fábrica).

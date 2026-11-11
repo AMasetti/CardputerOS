@@ -26,7 +26,7 @@ extern "C" {
 #endif
 
 #define CPOS_ABI_MAJOR 1
-#define CPOS_ABI_MINOR 6
+#define CPOS_ABI_MINOR 7
 
 /* ---- permissions (declared in the app header) ----------------------------- */
 #define CPOS_PERM_SD        (1u << 0)
@@ -210,7 +210,9 @@ typedef struct {
     int (*sock_connect)(int fd, const void *addr, uint32_t len);
     int (*sock_send)(int fd, const void *buf, size_t len, int flags);
     int (*sock_recv)(int fd, void *buf, size_t len, int flags);
-    uintptr_t reserved[1]; /* room for minor additions */
+    /* minor 7: DNS lookup, IPv4 in network order; 0 ok. connect() with an empty ssid (also from
+       minor 7) joins the network saved in System > WiFi. */
+    int (*resolve)(const char *host, uint32_t *ip);
 } cpos_net_api_t;
 
 /* ---- bluetooth LE (minor 1): central/observer, one connection ------------------

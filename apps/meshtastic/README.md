@@ -4,7 +4,7 @@ Nodo [Meshtastic](https://meshtastic.org) en el Cardputer-Adv con el **Cap LoRa-
 (SX1262 + GNSS ATGM336H). Habla con cualquier nodo Meshtastic 2.x: celulares con la app oficial,
 T-Beam, Heltec, RAK, otros Cardputer.
 
-Necesita CardputerOS 0.8.2 o posterior (ABI 1.6: servicio de radio LoRa y GNSS en el OS).
+Necesita CardputerOS 0.8.4 o posterior (ABI 1.7: servicio de radio LoRa y GNSS en el OS).
 
 ## Argentina
 
@@ -49,13 +49,18 @@ Ajustes en la flash; nodos y los últimos 40 mensajes en la SD (`/meshtastic`).
 
 ## Aparecer en el mapa
 
-Los mapas públicos (por ejemplo meshtastic.liamcottle.net) no escuchan la radio: se alimentan de MQTT, adonde
-suben los paquetes los nodos con internet que actúan de gateway. Para aparecer hacen falta tres cosas:
+Los mapas públicos (por ejemplo meshtastic.liamcottle.net) no escuchan la radio: se alimentan de MQTT
+(mqtt.meshtastic.org). Hay dos caminos:
 
-1. Un gateway al alcance (directo o a pocos saltos) con uplink activado en el canal LongFast.
-2. "Subir a MQTT/mapa" en sí (de fábrica).
-3. "Compartir posición" en sí y fix de GPS: el mapa solo muestra nodos con posición. En el canal público
-   la posición sale aproximada (~700 m).
+1. **Gateway WiFi propio** (de fábrica): con una red guardada en System > WiFi, el Cardputer se conecta al
+   broker y publica sus paquetes y un map report, igual que un nodo oficial con MQTT. El indicador "MQTT"
+   de la barra superior se pone verde al conectarse. También sube los paquetes de otros nodos que lo
+   permiten, así que sirve de gateway para la red local.
+2. **Otro gateway al alcance** con uplink en LongFast: recibe los paquetes por radio y los sube.
+
+En los dos casos hacen falta "Subir a MQTT/mapa" en sí (de fábrica) y "Compartir posición" en sí con fix
+de GPS: el mapa solo muestra nodos con posición. La posición sale aproximada (~700 m en el canal, ~1.4 km
+en el map report).
 
 ## Intents
 

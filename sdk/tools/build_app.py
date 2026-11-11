@@ -194,6 +194,9 @@ def main():
     # the LoRa radio and GNSS arrived in minor 5
     if {"lora", "gnss"} & set(meta.get("perms", [])) or "cpos_api->lora" in src_text:
         a.abi_minor = max(a.abi_minor, 5)
+    # net.resolve and connect("") to the saved network arrived in minor 7
+    if "net.resolve" in src_text:
+        a.abi_minor = max(a.abi_minor, 7)
     # lora.diag arrived in minor 6
     if "lora.diag" in src_text:
         a.abi_minor = max(a.abi_minor, 6)

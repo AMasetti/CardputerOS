@@ -6,6 +6,7 @@
 #include "esp_wifi.h"
 #include "freertos/event_groups.h"
 #include "lwip/sockets.h"
+#include "lwip/netdb.h"
 #include "esp_sntp.h"
 #include "nvs.h"
 #include <stdlib.h>
@@ -274,7 +275,22 @@ static int n_scan_get(int i, cpos_ap_t *o) {
 static void n_scan_clear(void) { s_ap_count = -1; }
 static int n_connect(const char *ssid, const char *pass) {
     NEED_WIFI(-1);
+    if (!ssid || !ssid[0]) { /* the network saved in System > WiFi, in the background */
+        if (cpos_wifi_is_connected()) return 0;
+        cpos_net_background_connect();
+        return 0;
+    }
     return cpos_wifi_connect(ssid, pass, 0);
+}
+
+static int n_resolve(const char *host, uint32_t *ip) {
+    NEED_WIFI(-1);
+    if (!host || !ip || !cpos_wifi_is_connected()) return -1;
+    struct addrinfo hints = {.ai_family = AF_INET, .ai_socktype = SOCK_STREAM}, *res = NULL;
+    if (lwip_getaddrinfo(host, NULL, &hints, &res) != 0 || !res) return -1;
+    *ip = ((struct sockaddr_in *)res->ai_addr)->sin_addr.s_addr;
+    lwip_freeaddrinfo(res);
+    return 0;
 }
 static void n_disconnect(void) {
     if (!cpos_has_perm(CPOS_PERM_WIFI) || !s_inited) return;
@@ -328,7 +344,7 @@ static int n_sock_send(int fd, const void *b, size_t n, int f) { return cpos_has
 static int n_sock_recv(int fd, void *b, size_t n, int f) { return cpos_has_perm(CPOS_PERM_WIFI) ? lwip_recv(fd, b, n, f) : -1; }
 
 void cpos_net_fill(cpos_net_api_t *n) {
-    n->sock_connect = n_sock_connect; n->sock_send = n_sock_send; n->sock_recv = n_sock_recv;
+    n->sock_connect = n_sock_connect; n->sock_send = n_sock_send; n->sock_recv = n_sock_recv; n->resolve = n_resolve;
     n->mode = n_mode; n->scan_start = n_scan_start; n->scan_count = n_scan_count; n->scan_get = n_scan_get;
     n->scan_clear = n_scan_clear; n->connect = n_connect; n->disconnect = n_disconnect; n->status = n_status;
     n->ip = n_ip; n->broadcast_ip = n_bcast; n->rssi = n_rssi; n->ssid = n_ssid; n->set_sleep = n_sleep;

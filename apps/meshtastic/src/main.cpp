@@ -21,6 +21,8 @@
 #include <stdio.h>
 #include <sys/stat.h>
 #include "mesh_core.h"
+#include "mqtt_core.h"
+#include <WiFiUdp.h>
 
 #ifndef APP_VERSION
 #define APP_VERSION "dev"
@@ -57,7 +59,8 @@ struct Settings {
     bool relay, gps, share_pos, sound;
 };
 static Settings S;
-static bool okMqtt = true; // aparte de Settings: agregarlo ahí invalidaría la config guardada
+static bool okMqtt = true;   // aparte de Settings: agregarlo ahí invalidaría la config guardada
+static bool wifiMqtt = true; // gateway propio: publicar en MQTT por WiFi
 static uint32_t myNode;
 
 static void defaultSettings() {
@@ -95,6 +98,7 @@ static void loadSettings() {
     S.channel[sizeof(S.channel) - 1] = 0;
     if (S.psk_len > 32) S.psk_len = 1;
     okMqtt = prefs.getBool("mqtt", true);
+    wifiMqtt = prefs.getBool("wifimqtt", true);
 }
 
 static void saveSettings() { prefs.putBytes("cfg", &S, sizeof(S)); }
@@ -450,6 +454,152 @@ static Position myPosition() {
     return p;
 }
 
+// ---- MQTT por WiFi: este nodo es su propio gateway ---------------------------------------------------------
+// Publica en mqtt.meshtastic.org lo mismo que un nodo oficial con MQTT: sus paquetes (cifrados, en
+// msh/<región>/2/e/<canal>/<id>), los de otros que lo permiten, y un "map report" con la posición
+// aproximada. Así aparece en los mapas públicos aunque no haya otro gateway cerca. La conexión corre en
+// una tarea propia para no trabar la pantalla.
+struct UpMsg { char topic[72]; uint16_t len; uint8_t data[400]; };
+static constexpr int UPQ = 6;
+static UpMsg *upq;
+static int upHead = 0, upN = 0;
+static void *upLock;
+enum { MQ_OFF, MQ_NO_WIFI, MQ_CONNECTING, MQ_UP };
+static volatile int mqttState = MQ_OFF;
+static volatile uint32_t mqttSent = 0;
+static bool mqttStarted = false;
+
+static void nodeId(char *b, size_t n) { snprintf(b, n, "!%08x", (unsigned)myNode); }
+static void topicRoot(char *b, size_t n) { snprintf(b, n, "msh/%s/2", region().name); }
+
+static void upPush(const char *topic, const uint8_t *d, size_t n) {
+    if (!upq || !n || n > sizeof(upq->data)) return;
+    if (cpos_api->rtos.mutex_lock(upLock, 100)) return;
+    if (upN == UPQ) { upHead = (upHead + 1) % UPQ; upN--; } // sin conexión: se pierde el más viejo
+    UpMsg &m = upq[(upHead + upN) % UPQ];
+    strncpy(m.topic, topic, sizeof(m.topic) - 1);
+    m.topic[sizeof(m.topic) - 1] = 0;
+    m.len = (uint16_t)n;
+    memcpy(m.data, d, n);
+    upN++;
+    cpos_api->rtos.mutex_unlock(upLock);
+}
+
+static bool upPop(UpMsg &m) {
+    bool got = false;
+    if (cpos_api->rtos.mutex_lock(upLock, 100)) return false;
+    if (upN) { m = upq[upHead]; upHead = (upHead + 1) % UPQ; upN--; got = true; }
+    cpos_api->rtos.mutex_unlock(upLock);
+    return got;
+}
+
+static void p_uplink(const uint8_t *p, size_t n, int16_t rssi, float snr) {
+    if (!wifiMqtt || !upq) return;
+    static uint8_t env[400];
+    char gw[12], root[24], topic[72];
+    nodeId(gw, sizeof(gw));
+    topicRoot(root, sizeof(root));
+    size_t en = encode_envelope(p, n, nowUnix(), rssi, snr, R.channel_name(), gw, env, sizeof(env));
+    snprintf(topic, sizeof(topic), "%s/e/%s/%s", root, R.channel_name(), gw);
+    upPush(topic, env, en);
+}
+
+static int sendAll(int fd, const uint8_t *b, size_t n) {
+    size_t off = 0;
+    for (uint32_t t0 = millis(); off < n;) {
+        int r = cpos_api->net.sock_send(fd, b + off, n - off, 0);
+        if (r > 0) off += r;
+        else if (millis() - t0 > 5000) return -1;
+        else delay(20);
+    }
+    return 0;
+}
+
+static void mqttTask(void *) {
+    static uint8_t buf[480];
+    static UpMsg m;
+    for (;;) {
+        if (!wifiMqtt) { mqttState = MQ_OFF; delay(1000); continue; }
+        if (cpos_api->net.status() != 3) { // la red guardada en System > WiFi
+            mqttState = MQ_NO_WIFI;
+            cpos_api->net.connect("", "");
+            delay(3000);
+            continue;
+        }
+        mqttState = MQ_CONNECTING;
+        uint32_t ip = 0;
+        if (cpos_api->net.resolve(mqtt::BROKER, &ip)) { delay(10000); continue; }
+        int fd = cpos_api->net.socket(2, 1, 0);
+        if (fd < 0) { delay(10000); continue; }
+        cpos_sockaddr_in a = {sizeof(a), 2, (uint16_t)((mqtt::PORT & 0xFF) << 8 | mqtt::PORT >> 8), ip, {0}};
+        if (cpos_api->net.sock_connect(fd, &a, sizeof(a)) != 0) { cpos_api->net.close(fd); delay(15000); continue; }
+        cpos_api->net.fcntl(fd, 4 /*F_SETFL*/, 1 /*O_NONBLOCK*/);
+        char cid[12];
+        nodeId(cid, sizeof(cid));
+        size_t n = mqtt::connect(cid, mqtt::USER, mqtt::PASS, buf, sizeof(buf));
+        bool ok = sendAll(fd, buf, n) == 0;
+        uint8_t ack[4];
+        int got = 0;
+        for (uint32_t t0 = millis(); ok && got < 4 && millis() - t0 < 8000;) {
+            int r = cpos_api->net.sock_recv(fd, ack + got, 4 - got, 0);
+            if (r > 0) got += r;
+            else if (r == 0) ok = false;
+            else delay(50);
+        }
+        if (!ok || !mqtt::connack_ok(ack, got)) { cpos_api->net.close(fd); delay(15000); continue; }
+        mqttState = MQ_UP;
+        uint32_t lastPing = millis(), lastRx = millis();
+        while (wifiMqtt && cpos_api->net.status() == 3) {
+            bool err = false;
+            while (upPop(m)) {
+                n = mqtt::publish(m.topic, m.data, m.len, buf, sizeof(buf));
+                if (!n || sendAll(fd, buf, n)) { err = true; break; }
+                mqttSent++;
+            }
+            if (err) break;
+            if (millis() - lastPing > 30000) {
+                n = mqtt::pingreq(buf);
+                if (sendAll(fd, buf, n)) break;
+                lastPing = millis();
+            }
+            uint8_t rx[64];
+            int r = cpos_api->net.sock_recv(fd, rx, sizeof(rx), 0);
+            if (r > 0) lastRx = millis();
+            else if (r == 0) break;                  // el broker cerró
+            if (millis() - lastRx > 100000) break;   // sin respuesta a los ping
+            delay(100);
+        }
+        cpos_api->net.close(fd);
+        mqttState = MQ_CONNECTING;
+        delay(5000);
+    }
+}
+
+static void startMqtt() {
+    if (mqttStarted) return;
+    if (cpos_api->abi_minor < 7) return; // OS sin DNS
+    upq = (UpMsg *)calloc(UPQ, sizeof(UpMsg));
+    upLock = cpos_api->rtos.mutex_create(0);
+    if (!upq || !upLock) return;
+    mqttStarted = cpos_api->rtos.task_create(mqttTask, "mqtt", 6144, nullptr, 3) >= 0;
+}
+
+static void sendMapReport() {
+    if (!wifiMqtt || !upq || !G.fix) return;
+    Position pos = myPosition();
+    MapReport r{S.long_name, S.short_name, HW_M5STACK_CARDPUTER_ADV, region().code, preset().code, "cardputeros-" APP_VERSION,
+                !S.channel[0] && psk_is_public(S.psk, S.psk_len), pos.latitude_i, pos.longitude_i, pos.altitude, 0};
+    for (int i = 0; i < R.num_nodes; i++)
+        if (R.nodes[i].last_heard && millis() - R.nodes[i].last_heard < 2u * 3600 * 1000) r.num_online_local_nodes++;
+    static uint8_t env[400];
+    char gw[12], root[24], topic[72];
+    nodeId(gw, sizeof(gw));
+    topicRoot(root, sizeof(root));
+    size_t n = encode_map_report(myNode, r, R.channel_name(), gw, env, sizeof(env));
+    snprintf(topic, sizeof(topic), "%s/map/", root);
+    upPush(topic, env, n);
+}
+
 // ---- tareas periódicas ------------------------------------------------------------------------------------
 static uint32_t nextNodeInfo = 15000, nextPosition = 60000, nextTelemetry = 120000;
 static cpos_lora_stats_t lastStats;
@@ -457,13 +607,23 @@ static uint32_t lastStatsAt = 0;
 
 static void periodic() {
     uint32_t t = millis();
+    // al conectarse a MQTT, anunciarse y (si se comparte) mandar la posición enseguida
+    static int lastMq = MQ_OFF;
+    if (mqttState == MQ_UP && lastMq != MQ_UP) {
+        nextNodeInfo = t + 2000;
+        if (S.share_pos) nextPosition = t + 5000;
+        needDraw = true;
+    }
+    if (mqttState != lastMq) needDraw = true;
+    lastMq = mqttState;
     if ((int32_t)(t - nextNodeInfo) >= 0) {
-        if (radioUp) R.send_nodeinfo();
+        if (radioUp || mqttState == MQ_UP) R.send_nodeinfo();
         nextNodeInfo = t + 3u * 3600 * 1000; // cada 3 h, como el firmware
     }
     if ((int32_t)(t - nextPosition) >= 0) {
-        if (radioUp && S.share_pos && G.fix) {
+        if ((radioUp || mqttState == MQ_UP) && S.share_pos && G.fix) {
             R.send_position(myPosition());
+            if (okMqtt) sendMapReport();
             nextPosition = t + 15u * 60 * 1000;
         } else {
             nextPosition = t + 60000;
@@ -471,8 +631,8 @@ static void periodic() {
     }
     if ((int32_t)(t - nextTelemetry) >= 0) {
         nextTelemetry = t + 30u * 60 * 1000;
-        if (radioUp) {
-            cpos_lora_stats_t s;
+        if (radioUp || mqttState == MQ_UP) {
+            cpos_lora_stats_t s = {};
             cpos_api->lora.stats(&s);
             uint32_t span = t - lastStatsAt;
             DeviceMetrics m;
@@ -620,6 +780,12 @@ static void drawTopBar(const char *title, uint16_t titleColor) {
         spr.setTextColor(G.fix ? C_GREEN : C_DIM);
         x -= spr.textWidth(b) + 6;
         spr.drawString(b, x, 1);
+    }
+    if (wifiMqtt && mqttStarted) {
+        const char *mq = "MQTT";
+        spr.setTextColor(mqttState == MQ_UP ? C_GREEN : C_DIM);
+        x -= spr.textWidth(mq) + 6;
+        spr.drawString(mq, x, 1);
     }
     const char *r = radioUp ? "LoRa" : "sin radio";
     spr.setTextColor(radioUp ? (cpos_api->lora.busy() ? C_AMBER : C_GREEN) : C_RED);
@@ -843,10 +1009,10 @@ static void drawNodes() {
 
 // ---- configuración ------------------------------------------------------------------------------------------
 enum CfgItem { CF_LONG, CF_SHORT, CF_REGION, CF_PRESET, CF_CHANNEL, CF_PSK, CF_SLOT, CF_POWER, CF_HOPS,
-               CF_RELAY, CF_GPS, CF_SHARE, CF_MQTT, CF_SOUND, CF_SEND_INFO, CF_SEND_POS, CF_CLEAR, CF_COUNT };
+               CF_RELAY, CF_GPS, CF_SHARE, CF_MQTT, CF_WIFI, CF_SOUND, CF_SEND_INFO, CF_SEND_POS, CF_CLEAR, CF_COUNT };
 static const char *CFG_NAMES[CF_COUNT] = {"Nombre", "Nombre corto", "Región", "Modo (preset)", "Canal", "Clave (PSK)",
                                           "Slot de frecuencia", "Potencia", "Saltos máx.", "Retransmitir", "GPS",
-                                          "Compartir posición", "Subir a MQTT/mapa", "Sonido", "Anunciar nodo ahora", "Enviar posición ahora",
+                                          "Compartir posición", "Subir a MQTT/mapa", "Gateway WiFi", "Sonido", "Anunciar nodo ahora", "Enviar posición ahora",
                                           "Borrar mensajes"};
 
 static void cfgValue(int i, char *b, size_t n) {
@@ -871,6 +1037,11 @@ static void cfgValue(int i, char *b, size_t n) {
     case CF_GPS: snprintf(b, n, "%s", S.gps ? (G.fix ? "sí · fix" : "sí · buscando") : "no"); break;
     case CF_SHARE: snprintf(b, n, "%s", S.share_pos ? "sí" : "no"); break;
     case CF_MQTT: snprintf(b, n, "%s", okMqtt ? "sí" : "no"); break;
+    case CF_WIFI:
+        if (!wifiMqtt) snprintf(b, n, "no");
+        else if (!mqttStarted) snprintf(b, n, "sí · OS sin soporte");
+        else snprintf(b, n, "%s", mqttState == MQ_UP ? "sí · conectado" : mqttState == MQ_NO_WIFI ? "sí · sin WiFi" : "sí · conectando");
+        break;
     case CF_SOUND: snprintf(b, n, "%s", S.sound ? "sí" : "no"); break;
     default: b[0] = 0;
     }
@@ -936,6 +1107,7 @@ static void cfgChange(int dir) {
     case CF_GPS: S.gps = !S.gps; setGps(S.gps); break;
     case CF_SHARE: S.share_pos = !S.share_pos; if (S.share_pos) nextPosition = millis() + 5000; break;
     case CF_MQTT: okMqtt = !okMqtt; prefs.putBool("mqtt", okMqtt); break;
+    case CF_WIFI: wifiMqtt = !wifiMqtt; prefs.putBool("wifimqtt", wifiMqtt); if (wifiMqtt) startMqtt(); break;
     case CF_SOUND: S.sound = !S.sound; break;
     default: return;
     }
@@ -980,12 +1152,16 @@ static void cfgCommitText() {
 static void cfgAction() {
     switch (cfgSel) {
     case CF_SEND_INFO:
-        if (radioUp) { R.send_nodeinfo(); showToast("Nodo anunciado"); }
+        if (radioUp || mqttState == MQ_UP) { R.send_nodeinfo(); showToast("Nodo anunciado"); }
         else showToast("Sin radio");
         break;
     case CF_SEND_POS:
         if (!G.fix) showToast("Sin posición GPS todavía");
-        else if (radioUp) { R.send_position(myPosition()); showToast("Posición enviada"); }
+        else if (radioUp || mqttState == MQ_UP) {
+            R.send_position(myPosition());
+            if (okMqtt) sendMapReport();
+            showToast("Posición enviada");
+        }
         break;
     case CF_CLEAR:
         msgCount = 0;
@@ -1150,7 +1326,7 @@ static bool allocState() {
 
 static void startAll() {
     loadSettings();
-    Platform pf{p_now, p_rnd, p_aes, p_send, p_busy};
+    Platform pf{p_now, p_rnd, p_aes, p_send, p_busy, p_uplink};
     R.begin(pf, &app);
     applyRouter();
     loadStore();
@@ -1178,6 +1354,7 @@ void setup() {
         for (;;) delay(1000);
     }
     startAll();
+    startMqtt();
     if (!radioUp) showToast(radioErr == -2 ? "No se encontró el Cap LoRa-1262" : "Radio LoRa no disponible");
 }
 

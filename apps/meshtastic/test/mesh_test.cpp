@@ -3,6 +3,7 @@
 // With --dump it also prints packets for test/crosscheck.py, which checks them against the
 // official Meshtastic protobufs and an independent AES-CTR.
 #include "mesh_core.h"
+#include "mqtt_core.h"
 #include <openssl/evp.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -88,6 +89,20 @@ int main(int argc, char **argv) {
         int32_t again = lat;
         reduce_precision(again, 15);
         CHECK(again == lat); // stable
+    }
+
+    // --- MQTT framing ---
+    {
+        uint8_t b[300];
+        size_t n = mqtt::connect("!0000cafe", mqtt::USER, mqtt::PASS, b, sizeof(b));
+        CHECK(n == 2 + 10 + 11 + 9 + 12 && b[0] == 0x10 && b[1] == n - 2 && !memcmp(b + 4, "MQTT", 4) && b[9] == 0xC2);
+        uint8_t pl[200] = {1, 2, 3};
+        n = mqtt::publish("msh/ANZ/2/e/LongFast/!0000cafe", pl, 200, b, sizeof(b));
+        CHECK(n == 1 + 2 + 2 + 30 + 200 && b[0] == 0x30 && b[1] == (0x80 | ((232) & 0x7F)) && b[2] == 1);
+        uint8_t ack[4] = {0x20, 2, 0, 0};
+        CHECK(mqtt::connack_ok(ack, 4));
+        ack[3] = 5;
+        CHECK(!mqtt::connack_ok(ack, 4));
     }
 
     // --- base64 ---
@@ -260,6 +275,15 @@ int main(int argc, char **argv) {
             Y.send_telemetry(1793000000, m);
             for (int i = 0; i < 3000; i++) { g_now += 10; Y.loop(); }
             for (auto &q : air.sent[1]) hex("PKT", q.data(), q.size());
+            // what the MQTT uplink publishes: the first packet as an encrypted envelope, and a map report
+            uint8_t env[400];
+            size_t en = encode_envelope(air.sent[1][0].data(), air.sent[1][0].size(), 1793000000, -95, 6.5f, "LongFast",
+                                        "!0000cafe", env, sizeof(env));
+            hex("ENV", env, en);
+            MapReport mr{"Cardputer AR", "CPAR", HW_M5STACK_CARDPUTER_ADV, REGIONS[0].code, PRESETS[0].code, "cardputeros-0.2.0",
+                         true, -329442000, -606502000, 31, 4};
+            en = encode_map_report(0x0000CAFE, mr, "LongFast", "!0000cafe", env, sizeof(env));
+            hex("MAP", env, en);
         }
     }
 
