@@ -4,6 +4,9 @@
  * Wiring on the Cardputer ADV EXT header: SCK 40, MISO 39, MOSI 14 (SPI3, shared with the
  * microSD card), NSS 5, RESET 3, BUSY 6, DIO1 4. DIO2 drives the RF switch, DIO3 powers a 1.8 V
  * TCXO (tried first; a crystal is used if the TCXO does not start). GNSS on UART1: TX 13, RX 15.
+ * The cap also has a PI4IOE5V6408 I/O expander (I2C 0x43 on the internal bus, 8/9): its P0 output
+ * enables the radio's antenna path and must be driven high before the SX1262 is used (as the
+ * Meshtastic firmware does in its Cardputer ADV variant).
  *
  * The radio is started when an app with the "lora" permission asks for it and stopped (radio put
  * to sleep, pins held high again so the SD bus stays clean) when the app ends. One OS task owns the
@@ -16,6 +19,7 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "hal.h"
 #include "freertos/semphr.h"
 #include <string.h>
 
@@ -255,11 +259,49 @@ static void start_rx(void) {
 }
 
 /* bring the chip up; tcxo: try with the 1.8 V TCXO on DIO3 */
+/* ---- the cap's I/O expander ----------------------------------------------------------- */
+#define PI4IO_ADDR 0x43
+#define PI4IO_REG_IO_DIR 0x03
+#define PI4IO_REG_OUT_SET 0x05
+#define PI4IO_REG_OUT_H_IM 0x07
+static i2c_master_dev_handle_t s_pi4io;
+
+static int pi4io_write(uint8_t reg, uint8_t v) {
+    uint8_t b[2] = {reg, v};
+    return i2c_master_transmit(s_pi4io, b, 2, 50) == ESP_OK ? 0 : -1;
+}
+
+/* P0 high: radio on. Returns 0 when the expander answered. */
+static int cap_enable(void) {
+    if (!s_pi4io) {
+        if (i2c_master_probe(hal_i2c(), PI4IO_ADDR, 50) != ESP_OK) {
+            ESP_LOGW(TAG, "no I/O expander at 0x%02x: is the Cap LoRa-1262 attached?", PI4IO_ADDR);
+            return -1;
+        }
+        i2c_device_config_t dc = {.dev_addr_length = I2C_ADDR_BIT_LEN_7, .device_address = PI4IO_ADDR, .scl_speed_hz = 400000};
+        if (i2c_master_bus_add_device(hal_i2c(), &dc, &s_pi4io) != ESP_OK) { s_pi4io = NULL; return -1; }
+    }
+    int rc = pi4io_write(PI4IO_REG_IO_DIR, 0x01);       /* P0 output */
+    rc |= pi4io_write(PI4IO_REG_OUT_H_IM, 0x00);        /* outputs driven, not high impedance */
+    rc |= pi4io_write(PI4IO_REG_OUT_SET, 0x01);         /* P0 high */
+    vTaskDelay(pdMS_TO_TICKS(10));
+    return rc ? -1 : 0;
+}
+
+static void cap_disable(void) {
+    if (!s_pi4io) return;
+    pi4io_write(PI4IO_REG_OUT_SET, 0x00);
+    i2c_master_bus_rm_device(s_pi4io);
+    s_pi4io = NULL;
+}
+
 static int chip_init(int tcxo) {
     hw_reset();
     uint8_t sw[2] = {0};
-    if (reg_read(REG_SYNC_WORD, sw, 2) || !((sw[0] == 0x14 && sw[1] == 0x24) || (sw[0] == 0x34 && sw[1] == 0x44)))
+    if (reg_read(REG_SYNC_WORD, sw, 2) || !((sw[0] == 0x14 && sw[1] == 0x24) || (sw[0] == 0x34 && sw[1] == 0x44))) {
+        ESP_LOGW(TAG, "SX1262 sync word reads %02x %02x (busy %d)", sw[0], sw[1], gpio_get_level(PIN_LORA_BUSY));
         return -2; /* nothing (or not an SX126x) on the bus */
+    }
     standby();
     if (tcxo) {
         uint8_t p[4] = {0x02 /* 1.8 V */, 0x00, 0x01, 0x40 /* 5 ms */};
@@ -462,11 +504,12 @@ static int l_begin(const cpos_lora_cfg_t *cfg) {
     if (spi_bus_add_device(SPI3_HOST, &dev, &s_spi) != ESP_OK) { s_spi = NULL; l_end(); return -2; }
     s_up = 1;
 
+    int cap = cap_enable(); /* a missing expander is logged; the chip is still tried */
     int rc = chip_init(1);
     s_tcxo = rc == 0;
     if (rc == -1) rc = chip_init(0); /* no TCXO on this board: crystal */
     if (rc) {
-        ESP_LOGW(TAG, "no SX1262 answered (%d)", rc);
+        ESP_LOGW(TAG, "no SX1262 answered (%d, expander %s)", rc, cap ? "missing" : "ok");
         l_end();
         return -2;
     }
@@ -503,6 +546,7 @@ static void l_end(void) {
         s_spi = NULL;
     }
     if (s_up) pins_idle();
+    cap_disable();
     s_up = 0;
     if (s_lock) xSemaphoreTake(s_lock, portMAX_DELAY);
     heap_caps_free(s_rxq);
