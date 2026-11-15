@@ -174,9 +174,20 @@ static int split_get(splits_t *sp, uint32_t i, uint32_t *v) {
     return 0;
 }
 
+/* texto de falla con números: entra en los 96 caracteres del cartel del launcher */
+static char s_errmsg[96];
+
+static const char *fail_msg(const char *what, const char *why, size_t need, int parts) {
+    uint32_t caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+    size_t fr = heap_caps_get_free_size(caps), big = heap_caps_get_largest_free_block(caps);
+    snprintf(s_errmsg, sizeof(s_errmsg), "%s %s: need %uB, %d parts, free %uB, max %uB", what, why, (unsigned)need, parts, (unsigned)fr, (unsigned)big);
+    ESP_LOGW(TAG, "%s", s_errmsg);
+    return s_errmsg;
+}
+
 /* one block if possible, else the largest free blocks in turn, each filled up to the last
  * cut point that fits */
-static int alloc_code(FILE *f, const Elf32_Ehdr_t *eh, cpos_image_t *img) {
+static int alloc_code(FILE *f, const Elf32_Ehdr_t *eh, cpos_image_t *img, const char **err) {
     size_t size = img->code_size;
     img->part[0] = heap_caps_malloc(size + 4, MALLOC_CAP_EXEC);
     if (img->part[0]) {
@@ -185,13 +196,13 @@ static int alloc_code(FILE *f, const Elf32_Ehdr_t *eh, cpos_image_t *img) {
         return 0;
     }
     Elf32_Shdr_t sh;
-    if (find_section(f, eh, ".cpos_splits", &sh) || sh.sh_size < 4) return -1;
+    if (find_section(f, eh, ".cpos_splits", &sh) || sh.sh_size < 4) { *err = fail_msg("code", "no splits", size, 0); return -1; }
     splits_t sp = {.f = f, .off = sh.sh_offset, .n = sh.sh_size / 4};
     size_t pos = 0;
     while (pos < size) {
-        if (img->nparts == CPOS_MAX_CODE_PARTS) return -1;
+        if (img->nparts == CPOS_MAX_CODE_PARTS) { *err = fail_msg("code", "max parts", size, img->nparts); return -1; }
         size_t room = heap_caps_get_largest_free_block(MALLOC_CAP_EXEC);
-        if (room < 64) return -1;
+        if (room < 64) { *err = fail_msg("code", "no room", size - pos, img->nparts); return -1; }
         room -= 16; /* the 4 spare bytes and allocator rounding */
         size_t end = 0;
         if (size - pos + 4 <= room) end = size;
@@ -202,9 +213,9 @@ static int alloc_code(FILE *f, const Elf32_Ehdr_t *eh, cpos_image_t *img) {
                 sp.i++;
             }
         }
-        if (end <= pos) return -1; /* even the next piece does not fit */
+        if (end <= pos) { *err = fail_msg("code", "no cut fits", size - pos, img->nparts); return -1; } /* even the next piece does not fit */
         void *p = heap_caps_malloc(end - pos + 4, MALLOC_CAP_EXEC);
-        if (!p) return -1;
+        if (!p) { *err = fail_msg("code", "alloc", end - pos + 4, img->nparts); return -1; }
         img->part[img->nparts] = p;
         img->part_off[img->nparts] = pos;
         img->nparts++;
@@ -251,14 +262,15 @@ int cpos_load(const char *path, cpos_image_t *img, const char **err) {
     if (img->header.abi_major != CPOS_ABI_MAJOR) { *err = "app needs a different ABI major"; goto out; }
     if (img->header.abi_minor > CPOS_ABI_MINOR) { *err = "app needs a newer OS"; goto out; }
 
-    img->code_size = (code_ph.p_memsz + 3) & ~3u;
-    if (alloc_code(f, &eh, img)) { *err = "not enough executable RAM"; goto out; }
-    img->code = img->part[0];
+    /* primero el bloque de datos, que exige un solo bloque contiguo; el código se puede cortar y va después */
     if (have_data && data_ph.p_memsz) {
         img->data_size = (data_ph.p_memsz + 3) & ~3u;
         img->data = heap_caps_calloc(1, img->data_size, MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL);
-        if (!img->data) { *err = "not enough RAM for app data"; goto out; }
+        if (!img->data) { *err = fail_msg("data", "alloc", img->data_size, 0); goto out; }
     }
+    img->code_size = (code_ph.p_memsz + 3) & ~3u;
+    if (alloc_code(f, &eh, img, err)) goto out;
+    img->code = img->part[0];
 
     tmp = malloc(1024);
     if (!tmp) { *err = "out of memory"; goto out; }

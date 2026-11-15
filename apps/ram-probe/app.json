@@ -1,0 +1,8 @@
+{
+  "name": "ram-probe",
+  "displayName": "RAM probe",
+  "version": "0.1.0",
+  "description": "App mínima de diagnóstico: sin permisos ni librerías, dibuja el heap libre que ve una app. Sirve para medir cuánta memoria deja el loader a una app chica.",
+  "perms": [],
+  "stack": 4096
+}

@@ -48,13 +48,28 @@ int cpos_run_app(const char *path, const char **err) {
         for (int i = 0; i < 300 && cpos_net_background_busy(); i++) vTaskDelay(pdMS_TO_TICKS(50));
         cpos_wifi_stop();
     }
+    /* escalera de reintentos: radio apagada primero (decenas de KB; la app la levanta sola si pide red),
+     * y recién después los buffers del launcher (la app los vuelve a pedir, ganan poco) */
     if (cpos_load(path, &a->img, err)) {
-        /* not enough room while the caller's buffers are held: release them and try once more */
-        if (!cpos_before_app_start) { free(a); return -1; }
-        cpos_before_app_start();
-        cpos_before_app_start = NULL;
-        gfx_drop_spare();
-        if (cpos_load(path, &a->img, err)) { free(a); return -1; }
+        ESP_LOGW(TAG, "load %s failed, stopping WiFi and retrying", path);
+        for (int i = 0; i < 300 && cpos_net_background_busy(); i++) vTaskDelay(pdMS_TO_TICKS(50));
+        cpos_wifi_stop();
+        if (cpos_load(path, &a->img, err)) {
+            if (!cpos_before_app_start) {
+                ESP_LOGW(TAG, "load %s failed: %s", path, *err);
+                free(a);
+                return -1;
+            }
+            ESP_LOGW(TAG, "load %s failed again, releasing launcher buffers", path);
+            cpos_before_app_start();
+            cpos_before_app_start = NULL;
+            gfx_drop_spare();
+            if (cpos_load(path, &a->img, err)) {
+                ESP_LOGW(TAG, "load %s failed: %s", path, *err);
+                free(a);
+                return -1;
+            }
+        }
     }
     /* the caller's big buffers go only now, so the loaded image does not land in (and split) them */
     if (cpos_before_app_start) cpos_before_app_start();
@@ -69,6 +84,7 @@ int cpos_run_app(const char *path, const char **err) {
     s_crash_magic = CRASH_MAGIC;
     strlcpy(s_crash_app, a->img.header.name, sizeof(s_crash_app));
     g_app = a;
+    ESP_LOGI(TAG, "APPMEM %s %s: free=%u int8_largest=%u exec_largest=%u exec_free=%u", a->img.header.name, a->img.header.version, (unsigned)esp_get_free_heap_size(), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_EXEC), (unsigned)heap_caps_get_free_size(MALLOC_CAP_EXEC));
     ESP_LOGI(TAG, "start %s (stack %u, free heap %u, largest block %u)", a->img.header.name, (unsigned)stack, (unsigned)esp_get_free_heap_size(), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
 
     if (xTaskCreatePinnedToCore(app_task, "app", stack, a, 5, &a->task, 1) != pdPASS) {
