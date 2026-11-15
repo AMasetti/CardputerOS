@@ -1,5 +1,16 @@
 # Changelog — Buscador de cielo
 
+## [0.1.1]
+- Arreglo de RAM: el OS no podía reservar el segmento de datos de la app (38 KB en un solo bloque
+  contiguo) y el launcher cortaba con "not enough RAM for app data". El catálogo de estrellas y las
+  líneas de constelaciones ahora viven en el segmento de código, que el OS copia en pedazos: el
+  bloque de datos bajó a 5,4 KB.
+- El catálogo quedó más compacto sin perder estrellas: 6 bytes por estrella (sin el índice de color,
+  que se reemplazó por un blanco tibio) y las líneas de constelaciones como pares de índices a la
+  estrella más cercana (4 bytes por segmento en vez de 12).
+- Los satélites se piden al heap cuando hay TLE (el ElsetRec del SGP4 pesa 1,6 KB cada uno) y el
+  tráfico aéreo se guarda hasta 32 aviones.
+
 ## [0.1.0]
 - Primera versión. Sostenés el Cardputer como una cámara (campo de 55°) y la pantalla muestra, en su
   posición real de azimut y altura: estrellas (2093, hasta mag ~6) con nombre las más brillantes, líneas

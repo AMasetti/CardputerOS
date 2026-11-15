@@ -1,7 +1,7 @@
 {
   "name": "skypointer",
   "displayName": "Buscador de cielo",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Buscador de cielo: sostenés el Cardputer como una cámara y la pantalla muestra estrellas, constelaciones, el Sol, la ISS y el tráfico aéreo en su posición real, según el GPS, la hora UTC y la actitud del equipo (IMU). El rumbo se fija a mano (no tiene magnetómetro).",
   "perms": [
     "imu",

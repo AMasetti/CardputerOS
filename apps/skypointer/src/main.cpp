@@ -345,26 +345,15 @@ static const char *const STAR_NAME[48] = {
     "Alnilam", "Alnair", "Alnitak", nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
     nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, "Polaris"};
 
-// paleta por índice de color (B-V * 10 + 20) y 4 niveles de brillo
-static uint16_t starPal[4][72];
+// Un color por nivel de brillo. El catálogo ya no guarda el índice de color
+// (cada byte del bloque de datos cuesta RAM al cargar), así que va un blanco tibio.
+static uint16_t starCol[4];
 
 static void buildPalette()
 {
-    static const float bvA[5] = {-0.3f, 0.3f, 0.8f, 1.4f, 2.0f};
-    static const uint8_t col[5][3] = {{150, 175, 255}, {235, 240, 255}, {255, 235, 190}, {255, 190, 120}, {255, 150, 90}};
     static const float lvl[4] = {0.42f, 0.62f, 0.82f, 1.0f};
-    for (int i = 0; i < 72; ++i) {
-        float bv = (i - 20) * 0.1f;
-        int k = 0;
-        while (k < 3 && bv > bvA[k + 1]) ++k;
-        float t = (bv - bvA[k]) / (bvA[k + 1] - bvA[k]);
-        t = fmaxf(0.0f, fminf(1.0f, t));
-        for (int l = 0; l < 4; ++l) {
-            int c[3];
-            for (int j = 0; j < 3; ++j) c[j] = (int)((col[k][j] + (col[k + 1][j] - col[k][j]) * t) * lvl[l]);
-            starPal[l][i] = rgb(c[0], c[1], c[2]);
-        }
-    }
+    for (int l = 0; l < 4; ++l)
+        starCol[l] = rgb((int)(255 * lvl[l]), (int)(245 * lvl[l]), (int)(225 * lvl[l]));
 }
 
 // --- Cielo: marco de horizonte, Sol, referencia -----------------------------------------------------
@@ -421,8 +410,11 @@ static void updateSky(double jd)
 }
 
 // --- Satélites ----------------------------------------------------------------------------------------
-static constexpr int MAX_SATS = 3, TRK_N = 20; // traza de 10 minutos, un punto cada 30 s
-static Sat sats[MAX_SATS];
+static constexpr int MAX_SATS = 2, TRK_N = 20; // traza de 10 minutos, un punto cada 30 s
+// El ElsetRec del SGP4 pesa ~1,6 KB por satélite. Se piden al heap sólo cuando
+// hay TLE: el OS tiene que reservar todo el segmento de datos en un solo bloque
+// contiguo, y ese bloque es lo que no entraba.
+static Sat *sats = nullptr;
 static int nSats = 0;
 struct SatPos {
     bool ok = false;
@@ -447,6 +439,8 @@ static void trimName(char *dst, size_t n, const char *src)
 // Lee los TLE de un texto (nombre opcional + línea 1 + línea 2). Devuelve cuántos cargó.
 static int parseTles(const char *text)
 {
+    if (!sats && !(sats = (Sat *)cpos_api->malloc(sizeof(Sat) * MAX_SATS))) return 0;
+    memset(sats, 0, sizeof(Sat) * MAX_SATS);
     int n = 0;
     char l[100], prev[28] = "";
     const char *p = text;
@@ -557,7 +551,7 @@ struct Aircraft {
     float te, tn, tu;   // un punto 3 km adelante, para orientar el triángulo
     bool ok;            // sobre el horizonte
 };
-static constexpr int MAX_AIR = 64;
+static constexpr int MAX_AIR = 32;
 static Aircraft air[MAX_AIR];
 static int nAir = 0;
 static bool airLoaded = false;
@@ -754,8 +748,10 @@ static inline bool onScreen(float px, float py, float m = 0)
 static void drawConstellations()
 {
     for (int i = 0; i < SKY_SEG_COUNT; ++i) {
+        const SkyStar &sa = SKY_STARS[SKY_SEGS[i].a], &sb = SKY_STARS[SKY_SEGS[i].b];
+        int16_t va[3] = {sa.x, sa.y, sa.z}, vb[3] = {sb.x, sb.y, sb.z};
         float ax, ay, ad, bx, by, bd;
-        if (!bodyProject(SKY_SEGS[i].a, ax, ay, ad) || !bodyProject(SKY_SEGS[i].b, bx, by, bd)) continue;
+        if (!bodyProject(va, ax, ay, ad) || !bodyProject(vb, bx, by, bd)) continue;
         if ((ax < 0 && bx < 0) || (ax >= W && bx >= W) || (ay < 0 && by < 0) || (ay >= H && by >= H)) continue;
         GFX.line(cv, (int)ax, (int)ay, (int)bx, (int)by, C_LINES);
     }
@@ -772,7 +768,7 @@ static void drawStars()
         int lv = m10 < 20 ? 3 : m10 < 35 ? 2 : m10 < 50 ? 1 : 0;
         float up = Hz[2][0] * s.x + Hz[2][1] * s.y + Hz[2][2] * s.z; // bajo el horizonte se apagan
         if (up < 0) lv = 0;
-        uint32_t col = starPal[lv][s.ci10 < 72 ? s.ci10 : 71];
+        uint32_t col = starCol[lv];
         int x = (int)px, y = (int)py;
         if (m10 < 10) GFX.circle(cv, x, y, 1, col, 1);
         else if (m10 < 30) GFX.rect(cv, x, y, 2, 2, col, 1);
