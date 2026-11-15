@@ -37,10 +37,9 @@ struct SkyStar {
 // Extremos de un segmento: índices a SKY_STARS.
 struct SkySeg { uint16_t a, b; };
 
-// El catálogo va al segmento de código, no al de datos: el OS copia el código a
-// RAM en pedazos (puede partirlo), pero el segmento de datos lo tiene que
-// reservar en un solo bloque contiguo y en esta placa no entraba.
-#define SKY_TABLE __attribute__((section(".text.rodata"), aligned(4)))
+// El catálogo queda en .rodata (segmento de datos): el OS lo pide en un solo
+// bloque contiguo, así que tiene que ser chico. Y no puede ir al segmento de
+// código porque ese también tiene un techo (IRAM) y ya estamos cerca.
 """
 
 
@@ -103,14 +102,14 @@ def main():
                     continue
                 segs.append((ia, ib))
 
-    out = [HDR, "\nstatic const SkyStar SKY_STARS[] SKY_TABLE = {"]
+    out = [HDR, "\nstatic const SkyStar SKY_STARS[] = {"]
     for mag, v in stars:
         x, y, z = q(v)
         m = max(0, min(255, int(round(mag * 10 + 20))))
         out.append(f"{{{x},{y},{z},{m}}},")
     out.append("};\n")
     out.append(f"static const uint16_t SKY_STAR_COUNT = {len(stars)};\n")
-    out.append("static const SkySeg SKY_SEGS[] SKY_TABLE = {")
+    out.append("static const SkySeg SKY_SEGS[] = {")
     for a, b in segs:
         out.append("{%d,%d}," % (a, b))
     out.append("};\n")

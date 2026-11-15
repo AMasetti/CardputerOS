@@ -551,7 +551,7 @@ struct Aircraft {
     float te, tn, tu;   // un punto 3 km adelante, para orientar el triángulo
     bool ok;            // sobre el horizonte
 };
-static constexpr int MAX_AIR = 32;
+static constexpr int MAX_AIR = 20;
 static Aircraft air[MAX_AIR];
 static int nAir = 0;
 static bool airLoaded = false;

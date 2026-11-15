@@ -1,5 +1,14 @@
 # Changelog — Buscador de cielo
 
+## [0.1.2]
+- Arreglo del techo de RAM ejecutable: con el catálogo en el segmento de código la app llegaba a
+  83,6 KB de `.text` y el loader cortaba con "not enough executable RAM" (0.1.0 había cargado con
+  63,9 KB). El catálogo vuelve a `.rodata` y el código queda en 63,9 KB, el tamaño que ya se sabe
+  que entra.
+- El catálogo queda en 1355 estrellas (mag <= 4,2 más todas las que tienen nombre propio o Bayer,
+  que son las que dibujan las constelaciones) y 681 segmentos. El bloque de datos queda en 18 KB.
+- Aéreos: hasta 20 aviones en vez de 32.
+
 ## [0.1.1]
 - Arreglo de RAM: el OS no podía reservar el segmento de datos de la app (38 KB en un solo bloque
   contiguo) y el launcher cortaba con "not enough RAM for app data". El catálogo de estrellas y las
