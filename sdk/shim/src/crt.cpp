@@ -112,8 +112,15 @@ time_t time(time_t *t) { time_t v = (time_t)(cpos_api->millis() / 1000); if (t) 
 }
 
 // ---- C++ allocation ------------------------------------------------------------------
-void *operator new(size_t n) { return malloc(n); }
-void *operator new[](size_t n) { return malloc(n); }
+// Without exceptions a failed new used to return NULL and the container wrote through it, which
+// restarted the whole system. Now the app ends and the launcher says "not enough memory" (-5).
+static void *new_or_exit(size_t n) {
+    void *p = malloc(n ? n : 1);
+    if (!p) { cpos_api->exit_app(-5); for (;;) {} }
+    return p;
+}
+void *operator new(size_t n) { return new_or_exit(n); }
+void *operator new[](size_t n) { return new_or_exit(n); }
 void *operator new(size_t n, const std::nothrow_t &) noexcept { return malloc(n); }
 void *operator new[](size_t n, const std::nothrow_t &) noexcept { return malloc(n); }
 void operator delete(void *p) noexcept { free(p); }
