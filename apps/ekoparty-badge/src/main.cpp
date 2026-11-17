@@ -4,8 +4,8 @@
 // Cualquier tecla alterna entre la vista logo + QR y el QR a pantalla
 // completa (más fácil de escanear desde lejos).
 //
-// El logo vive en src/logo.h (RGB565). Para regenerarlo:
-//   python3 tools/img2h.py assets/ekoparty22.jpg src/logo.h --size 130
+// El logo vive en src/logo.h (paleta de 16 colores, 4 bits por píxel). Para regenerarlo:
+//   python3 tools/img2h.py assets/ekoparty22.jpg src/logo.h --size 130 --colors 16
 
 #include <cpos_intent.h>
 #include <Preferences.h>
@@ -50,6 +50,22 @@ static void drawQr(int x, int y, int size)
     M5Cardputer.Display.qrcode(QR_URL, x, y, size, 2);
 }
 
+// El logo viene con paleta de 16 colores y 4 bits por píxel (8,5 KB en lugar de 33,8 KB de
+// RGB565: el bloque de datos de la app tiene que entrar contiguo en la RAM). Se arma fila por fila.
+static void drawLogo(int x, int y)
+{
+    uint16_t row[LOGO_W];
+    for (int r = 0; r < LOGO_H; r++) {
+        const uint8_t *src = LOGO_PX + r * LOGO_ROW_BYTES;
+        for (int c = 0; c < LOGO_W; c++) {
+            uint8_t b = src[c >> 1];
+            row[c] = LOGO_PAL[(c & 1) ? (b & 0x0F) : (b >> 4)];
+        }
+        // RGB565 nativo; con un uint16_t* a secas M5GFX asume bytes invertidos (swap565_t)
+        M5Cardputer.Display.pushImage(x, y + r, LOGO_W, 1, reinterpret_cast<const lgfx::rgb565_t *>(row));
+    }
+}
+
 static void drawBadge()
 {
     auto &d = M5Cardputer.Display;
@@ -57,10 +73,7 @@ static void drawBadge()
     const uint16_t cyan = d.color565(64, 200, 220);
 
     d.fillScreen(TFT_BLACK);
-    // logo.h guarda RGB565 nativo; con un uint16_t* a secas M5GFX asume
-    // bytes invertidos (swap565_t), así que se indica el tipo explícito.
-    d.pushImage(2, (d.height() - LOGO_H) / 2, LOGO_W, LOGO_H,
-                reinterpret_cast<const lgfx::rgb565_t *>(LOGO));
+    drawLogo(2, (d.height() - LOGO_H) / 2);
 
     // QR a la derecha del logo (área de ~105 px de ancho).
     const int qrSize = 104;
