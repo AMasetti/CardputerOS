@@ -1,5 +1,12 @@
 # Changelog — MP3 Player
 
+## 0.2.6
+- No reinicia el sistema al abrir con música en la SD. Con la biblioteca por fin visible (0.2.5), la RAM no
+  alcanzaba: canvas de pantalla completa (65 KB) + 48 KB reservados de entrada para los textos. Ahora la
+  pantalla se dibuja en tres franjas de 240x45 (22 KB) y la reserva de textos depende de cuántos temas hay.
+- Si aun así falta memoria (bibliotecas muy grandes), la app se cierra y el launcher dice "not enough
+  memory" en lugar de reiniciar todo (SDK: `new` sin memoria termina la app).
+
 ## 0.2.5
 - Vuelve a encontrar la música: las carpetas se abrían como `/sd/...` (la ruta del firmware Arduino) y
   CardputerOS sólo deja abrir `/sdcard/...`, así que no se veía nada dentro de `/music`. Lo mismo

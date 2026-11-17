@@ -455,11 +455,13 @@ bool load(bool rebuild, Progress cb)
     artists.clear();
     dirs.clear();
     pool.clear();
-    pool.reserve(48 * 1024);
 
     if (cb) cb("Looking for music...", 0, 0);
     std::vector<std::string> files;
     walk("", 0, files);
+    // ~56 bytes de textos por tema (archivo, título, carpeta, disco): reservar de una vez evita que el
+    // vector se duplique al crecer (dos copias juntas); los 48 KB fijos de antes no entraban en la RAM
+    pool.reserve(std::min<size_t>(files.size() * 56 + 1024, 48 * 1024));
     std::sort(files.begin(), files.end());
     std::vector<bool> known(files.size(), false);
 

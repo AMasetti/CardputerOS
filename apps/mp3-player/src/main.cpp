@@ -65,7 +65,27 @@ static constexpr int ART_X = 6, ART_Y = 20;
 static const lgfx::IFont *FONT = &fonts::lgfxJapanGothicP_12;
 static const lgfx::IFont *FONT_BIG = &fonts::lgfxJapanGothicP_16;
 
-static M5Canvas canvas(&M5Cardputer.Display);
+// La pantalla se dibuja en tres franjas de 240x45 con el mismo código (como Meshtastic): el canvas
+// ocupa 22 KB en vez de 65 KB, y esa RAM es la que necesitan la biblioteca y el decodificador MP3.
+// Cada franja corre el dibujo completo con las coordenadas corridas oy píxeles; lo que cae afuera se recorta.
+static constexpr int BAND_H = 45;
+class BandCanvas : public M5Canvas {
+  public:
+    using M5Canvas::M5Canvas;
+    int oy = 0;
+    int drawString(const char *s, int x, int y) { return M5Canvas::drawString(s, x, y - oy); }
+    void drawFastHLine(int x, int y, int w, uint32_t c) { M5Canvas::drawFastHLine(x, y - oy, w, c); }
+    void drawFastVLine(int x, int y, int h, uint32_t c) { M5Canvas::drawFastVLine(x, y - oy, h, c); }
+    void drawLine(int x0, int y0, int x1, int y1, uint32_t c) { M5Canvas::drawLine(x0, y0 - oy, x1, y1 - oy, c); }
+    void drawRect(int x, int y, int w, int h, uint32_t c) { M5Canvas::drawRect(x, y - oy, w, h, c); }
+    void fillRect(int x, int y, int w, int h, uint32_t c) { M5Canvas::fillRect(x, y - oy, w, h, c); }
+    void drawRoundRect(int x, int y, int w, int h, int r, uint32_t c) { M5Canvas::drawRoundRect(x, y - oy, w, h, r, c); }
+    void fillRoundRect(int x, int y, int w, int h, int r, uint32_t c) { M5Canvas::fillRoundRect(x, y - oy, w, h, r, c); }
+    void fillEllipse(int x, int y, int rx, int ry, uint32_t c) { M5Canvas::fillEllipse(x, y - oy, rx, ry, c); }
+    void fillTriangle(int x0, int y0, int x1, int y1, int x2, int y2, uint32_t c) { M5Canvas::fillTriangle(x0, y0 - oy, x1, y1 - oy, x2, y2 - oy, c); }
+    void setClipRect(int x, int y, int w, int h) { M5Canvas::setClipRect(x, y - oy, w, h); }
+};
+static BandCanvas canvas(&M5Cardputer.Display);
 static M5Canvas artSpr;
 static int artAlbum = -2;
 static bool artOk = false;
@@ -115,6 +135,7 @@ static Modal modal;
 static bool dirty = true;
 static bool animating = false;
 static uint32_t lastDraw = 0;
+static uint32_t frameMs = 0; // un solo instante por cuadro: las tres franjas dibujan lo mismo
 static uint32_t selSince = 0;  // para el desplazamiento del texto seleccionado
 static uint32_t npSince = 0;   // idem para el título en Now Playing
 static std::string toastMsg;
@@ -346,7 +367,7 @@ static void drawTextBox(const std::string &s, int x, int yMid, int w, bool scrol
     const int gap = 36, speed = 32; // px/s
     const int cycle = tw + gap;
     const uint32_t pause = 1500, cycleMs = cycle * 1000 / speed;
-    uint32_t t = millis() - since;
+    uint32_t t = frameMs - since;
     int off = 0;
     if (t > pause) {
         uint32_t ph = (t - pause) % (cycleMs + pause);
@@ -519,7 +540,7 @@ static void drawNowPlaying()
         artOk = art::load(tr.album, artSpr);
         artAlbum = tr.album;
     }
-    if (artOk) artSpr.pushSprite(&canvas, ART_X, ART_Y);
+    if (artOk) artSpr.pushSprite(&canvas, ART_X, ART_Y - canvas.oy);
     else drawNote(ART_X, ART_Y, art::SIZE);
     canvas.drawRect(ART_X - 1, ART_Y - 1, art::SIZE + 2, art::SIZE + 2, C_LINE);
 
@@ -534,7 +555,7 @@ static void drawNowPlaying()
     drawTextBox(lib::albumName(tr.album), x, ART_Y + 48, w, false, 0);
 
     const int yIcons = ART_Y + 64;
-    if (millis() < volUntil) {
+    if (frameMs < volUntil) {
         canvas.fillTriangle(x, yIcons + 2, x + 4, yIcons - 1, x + 4, yIcons + 9, C_DIM);
         canvas.fillRect(x, yIcons + 2, 2, 5, C_DIM);
         int bw = w - 12;
@@ -617,7 +638,7 @@ static void drawModal()
         while (!shown.empty() && canvas.textWidth(shown.c_str()) > w - 28) shown.erase(0, 1);
         canvas.setTextColor(C_TEXT);
         canvas.drawString(shown.c_str(), x + 13, fy + 10);
-        if (millis() / 500 % 2) canvas.drawFastVLine(x + 14 + canvas.textWidth(shown.c_str()), fy + 4, 12, C_TEXT);
+        if (frameMs / 500 % 2) canvas.drawFastVLine(x + 14 + canvas.textWidth(shown.c_str()), fy + 4, 12, C_TEXT);
         animating = true;
         canvas.setTextColor(C_DIM);
         canvas.setTextDatum(middle_center);
@@ -645,9 +666,23 @@ static void drawToast()
     canvas.setTextDatum(middle_left);
 }
 
+static void drawFrame();
+
 static void draw()
 {
     animating = false;
+    frameMs = millis();
+    for (int band = 0; band * BAND_H < H; band++) {
+        canvas.oy = band * BAND_H;
+        drawFrame();
+        canvas.pushSprite(0, canvas.oy);
+    }
+    lastDraw = millis();
+    dirty = false;
+}
+
+static void drawFrame()
+{
     canvas.fillScreen(C_BG);
     canvas.setFont(FONT);
     canvas.setTextDatum(middle_left);
@@ -661,7 +696,7 @@ static void draw()
     }
     if (modal.type != M::None) drawModal();
 
-    uint32_t now = millis();
+    uint32_t now = frameMs;
     if (now < toastUntil) {
         drawToast();
     } else if (now < volUntil && v.type != V::NowPlaying) {
@@ -670,9 +705,6 @@ static void draw()
         toastMsg = b;
         drawToast();
     }
-    canvas.pushSprite(0, 0);
-    lastDraw = now;
-    dirty = false;
 }
 
 // --- Acciones -------------------------------------------------------------------------
@@ -774,7 +806,19 @@ static void addTracks(const std::vector<uint16_t> &tracks)
     markSel();
 }
 
+static void progressFrame(const char *msg, int done, int total);
+
 static void progressScreen(const char *msg, int done, int total)
+{
+    frameMs = millis();
+    for (int band = 0; band * BAND_H < H; band++) {
+        canvas.oy = band * BAND_H;
+        progressFrame(msg, done, total);
+        canvas.pushSprite(0, canvas.oy);
+    }
+}
+
+static void progressFrame(const char *msg, int done, int total)
 {
     canvas.fillScreen(C_BG);
     canvas.setFont(FONT);
@@ -792,7 +836,6 @@ static void progressScreen(const char *msg, int done, int total)
         canvas.drawString(b, W / 2, 94);
     }
     canvas.setTextDatum(middle_left);
-    canvas.pushSprite(0, 0);
 }
 
 static void loadLibrary(bool rebuild)
@@ -1205,7 +1248,7 @@ void setup()
     M5Cardputer.begin(cfg, true);
     M5Cardputer.Display.setRotation(1);
     canvas.setColorDepth(16);
-    canvas.createSprite(W, H);
+    canvas.createSprite(W, BAND_H);
     artSpr.setColorDepth(16);
     artSpr.createSprite(art::SIZE, art::SIZE);
     M5Cardputer.Speaker.begin();
