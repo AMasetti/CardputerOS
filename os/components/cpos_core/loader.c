@@ -178,10 +178,18 @@ static int split_get(splits_t *sp, uint32_t i, uint32_t *v) {
 static char s_errmsg[96];
 
 static const char *fail_msg(const char *what, const char *why, size_t need, int parts) {
-    uint32_t caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
-    size_t fr = heap_caps_get_free_size(caps), big = heap_caps_get_largest_free_block(caps);
-    snprintf(s_errmsg, sizeof(s_errmsg), "%s %s: need %uB, %d parts, free %uB, max %uB", what, why, (unsigned)need, parts, (unsigned)fr, (unsigned)big);
-    ESP_LOGW(TAG, "%s", s_errmsg);
+    /* 8-bit internal heap (data) vs executable memory (code): different pools, measured apart */
+    uint32_t caps8 = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+    unsigned free8 = (unsigned)heap_caps_get_free_size(caps8);
+    unsigned max8 = (unsigned)heap_caps_get_largest_free_block(caps8);
+    unsigned freeexec = (unsigned)heap_caps_get_free_size(MALLOC_CAP_EXEC);
+    unsigned maxexec = (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_EXEC);
+    /* cartel: priority need, parts, maxexec, freeexec, free8, max8; snprintf truncates the tail if >95 chars */
+    snprintf(s_errmsg, sizeof(s_errmsg), "%s %s: need %uB, %d parts, maxexec %uB, freeexec %uB, free8 %uB, max8 %uB",
+             what, why, (unsigned)need, parts, maxexec, freeexec, free8, max8);
+    /* log: always the full values */
+    ESP_LOGW(TAG, "%s %s: need=%uB parts=%d free8=%uB max8=%uB freeexec=%uB maxexec=%uB",
+             what, why, (unsigned)need, parts, free8, max8, freeexec, maxexec);
     return s_errmsg;
 }
 

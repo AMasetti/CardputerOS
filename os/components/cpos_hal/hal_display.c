@@ -116,9 +116,10 @@ void hal_display_init(void) {
     esp_lcd_panel_set_gap(s_panel, s_gap_x, s_gap_y);
 
     /* start black, then light the backlight */
-    static uint16_t black[LCD_W * BAND_ROWS];
+    /* one black row in flash, repeated with stride 0: a full band in .bss cost 7.7 KB of RAM forever */
+    static const uint16_t black[LCD_W];
     for (int y = 0; y < LCD_H; y += BAND_ROWS)
-        hal_display_blit(0, y, LCD_W, (y + BAND_ROWS > LCD_H) ? LCD_H - y : BAND_ROWS, black, LCD_W);
+        hal_display_blit(0, y, LCD_W, (y + BAND_ROWS > LCD_H) ? LCD_H - y : BAND_ROWS, black, 0);
     esp_lcd_panel_disp_on_off(s_panel, true);
     hal_display_brightness(160);
     ESP_LOGI(TAG, "ST7789 ready %dx%d", LCD_W, LCD_H);

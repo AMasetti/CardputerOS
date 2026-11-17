@@ -8,6 +8,7 @@
 #include "hal.h"
 #include "esp_app_desc.h"
 #include "esp_crt_bundle.h"
+#include "esp_heap_caps.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
 #include "esp_ota_ops.h"
@@ -219,6 +220,8 @@ static void perms_text(uint32_t p, char *out, size_t n) {
     if (!out[0]) strlcpy(out, "none", n);
 }
 
+static int install_checked(const char *tmp, const cpos_app_header_t *hp, const char *tag, const inst_t *old, int n, int quiet);
+
 /* quiet = part of "update all": no messages, and the permission question only when the new version asks
  * for more than the installed one. Returns 0 installed, -1 failed or declined, -2 needs a newer OS. */
 static int install_app(const char *name, const int v[3], int quiet) {
@@ -252,8 +255,16 @@ static int install_app(const char *name, const int v[3], int quiet) {
         if (!quiet) ui_message("Install", "This app needs a different OS version. Update the OS first.");
         return -2;
     }
-    static inst_t old[40];
-    int n = list_installed(old, 40);
+    /* on the heap only for this call: as .bss it was RAM taken from every app */
+    inst_t *old = heap_caps_malloc(40 * sizeof(inst_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (!old) { unlink(tmp); if (!quiet) ui_message("Install", "Not enough memory."); return -1; }
+    int rc = install_checked(tmp, &h, tag, old, list_installed(old, 40), quiet);
+    free(old);
+    return rc;
+}
+
+static int install_checked(const char *tmp, const cpos_app_header_t *hp, const char *tag, const inst_t *old, int n, int quiet) {
+    const cpos_app_header_t h = *hp;
     uint32_t had = 0;
     int found = 0;
     for (int i = 0; i < n; i++) if (!strcmp(old[i].name, h.name)) { had = old[i].perms; found = 1; }
@@ -334,6 +345,10 @@ static void update_all(const tags_ctx_t *tags, const inst_t *inst, int ni) {
     ui_message("Update all", m);
 }
 
+/* the store's lists (~13 KB), on the heap only while the store is open */
+typedef struct { tags_ctx_t tags; inst_t inst[40]; ui_item_t items[MAX_TAGS + 1]; } store_ctx_t;
+static void store_menu(store_ctx_t *c);
+
 void store_screen(void) {
     if (!hal_sd_ready()) { ui_message("Store", "Insert an SD card first."); return; }
     ui_wait_background_net();
@@ -344,18 +359,25 @@ void store_screen(void) {
             return;
         }
     }
+    store_ctx_t *c = heap_caps_calloc(1, sizeof(*c), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (!c) { ui_message("Store", "Not enough memory."); return; }
+    store_menu(c);
+    free(c);
+}
+
+static void store_menu(store_ctx_t *c) {
     ui_status("Checking updates...", store_repo());
-    static tags_ctx_t tags;
-    if (fetch_tags(&tags)) return;
-    if (tags.n == 0) { ui_message("Store", "No releases found in this repository."); return; }
+    tags_ctx_t *tags = &c->tags;
+    if (fetch_tags(tags)) return;
+    if (tags->n == 0) { ui_message("Store", "No releases found in this repository."); return; }
 
     int sel = 0;
     for (;;) {
-        static inst_t inst[40];
+        inst_t *inst = c->inst;
         int ni = list_installed(inst, 40);
-        static ui_item_t items[MAX_TAGS + 1];
+        ui_item_t *items = c->items;
         int idx[MAX_TAGS + 1], n = 0;
-        int upd = outdated(&tags, inst, ni, NULL);
+        int upd = outdated(tags, inst, ni, NULL);
         snprintf(items[n].left, sizeof(items[n].left), "Update all apps");
         if (upd) snprintf(items[n].right, sizeof(items[n].right), "%d available", upd);
         else snprintf(items[n].right, sizeof(items[n].right), "up to date");
@@ -364,14 +386,14 @@ void store_screen(void) {
         const esp_app_desc_t *d = esp_app_get_description();
         int osv[3];
         parse_version(d->version, osv);
-        for (int i = 0; i < tags.n; i++) {
+        for (int i = 0; i < tags->n; i++) {
             ui_item_t *it = &items[n];
-            const int *lv = tags.t[i].v;
-            int is_os = strcmp(tags.t[i].name, "os") == 0;
+            const int *lv = tags->t[i].v;
+            int is_os = strcmp(tags->t[i].name, "os") == 0;
             int cur[3] = {-1, 0, 0}, have = 0;
             if (is_os) { memcpy(cur, osv, sizeof(cur)); have = 1; }
-            else for (int j = 0; j < ni; j++) if (!strcmp(inst[j].name, tags.t[i].name)) { memcpy(cur, inst[j].v, sizeof(cur)); have = 1; }
-            snprintf(it->left, sizeof(it->left), "%s%s", is_os ? "OS: " : "", is_os ? "CardputerOS" : tags.t[i].name);
+            else for (int j = 0; j < ni; j++) if (!strcmp(inst[j].name, tags->t[i].name)) { memcpy(cur, inst[j].v, sizeof(cur)); have = 1; }
+            snprintf(it->left, sizeof(it->left), "%s%s", is_os ? "OS: " : "", is_os ? "CardputerOS" : tags->t[i].name);
             if (!have) { snprintf(it->right, sizeof(it->right), "get v%d.%d.%d", lv[0], lv[1], lv[2]); it->color = 0; }
             else if (vcmp(cur, lv) < 0) { snprintf(it->right, sizeof(it->right), "update v%d.%d.%d", lv[0], lv[1], lv[2]); it->color = C_ACC; }
             else { snprintf(it->right, sizeof(it->right), "v%d.%d.%d ok", cur[0], cur[1], cur[2]); it->color = C_OK; }
@@ -379,8 +401,8 @@ void store_screen(void) {
         }
         sel = ui_menu("App Store", items, n, sel, "enter: install/update  `: back");
         if (sel < 0) return;
-        if (idx[sel] < 0) { update_all(&tags, inst, ni); continue; }
-        tag_t *t = &tags.t[idx[sel]];
+        if (idx[sel] < 0) { update_all(tags, inst, ni); continue; }
+        tag_t *t = &tags->t[idx[sel]];
         if (strcmp(t->name, "os") == 0) {
             if (vcmp(osv, t->v) >= 0) { ui_message("OS update", "The OS is up to date."); continue; }
             char m[96];

@@ -7,6 +7,7 @@
 #include "app_ctx.h"
 #include "hal.h"
 #include "loader.h"
+#include "esp_heap_caps.h"
 #include "esp_timer.h"
 #include <dirent.h>
 #include <stdlib.h>
@@ -18,8 +19,18 @@
 
 typedef struct { char name[32]; char app[24]; char path[96]; } entry_t;
 #define MAX_ENTRIES 80
-static entry_t s_e[MAX_ENTRIES];
-static int s_n;
+#define N_OS 5
+
+/* Everything this screen needs (~23 KB), on the heap only while it is open: as static .bss it
+ * was RAM taken away from every app, even from apps that never touch intents. */
+typedef struct {
+    entry_t e[MAX_ENTRIES];
+    int n;
+    entry_t os_e[N_OS];
+    ui_item_t items[MAX_ENTRIES + N_OS];
+    const entry_t *map[MAX_ENTRIES + N_OS];
+    char json[3100], obj[600];
+} intents_ctx_t;
 
 static const char *status_name(int st) {
     static const char *n[] = {"ok", "no_app", "no_perm", "timeout", "bad_arg", "failed"};
@@ -80,30 +91,30 @@ static void args_template(const char *obj, char *out, size_t max) {
     }
 }
 
-static void scan(void) {
-    s_n = 0;
+static void scan(intents_ctx_t *c) {
+    c->n = 0;
     DIR *d = opendir("/sdcard/apps");
     if (!d) return;
-    static char json[3100];
+    char *json = c->json;
     struct dirent *e;
-    while ((e = readdir(d)) && s_n < MAX_ENTRIES) {
+    while ((e = readdir(d)) && c->n < MAX_ENTRIES) {
         size_t l = strlen(e->d_name);
         if (l < 5 || strcasecmp(e->d_name + l - 4, ".elf") || e->d_name[0] == '.') continue;
         char path[96];
         snprintf(path, sizeof(path), "/sdcard/apps/%.80s", e->d_name);
         cpos_app_header_t h;
-        if (cpos_read_header(path, &h, NULL) || cpos_read_intents(path, json, sizeof(json)) < 0) continue;
+        if (cpos_read_header(path, &h, NULL) || cpos_read_intents(path, json, sizeof(c->json)) < 0) continue;
         /* every top-level key: "name":{ at depth 1 */
         int depth = 0, instr = 0;
         char key[32];
         int kl = 0;
-        for (const char *p = json; *p && s_n < MAX_ENTRIES; p++) {
+        for (const char *p = json; *p && c->n < MAX_ENTRIES; p++) {
             if (*p == '"') {
                 instr = !instr;
                 if (instr) kl = 0;
                 else if (depth == 1 && p[1] == ':' && p[2] == '{' && kl) {
                     key[kl] = 0;
-                    entry_t *en = &s_e[s_n++];
+                    entry_t *en = &c->e[c->n++];
                     strlcpy(en->name, key, sizeof(en->name));
                     strlcpy(en->app, h.name, sizeof(en->app));
                     strlcpy(en->path, path, sizeof(en->path));
@@ -146,23 +157,23 @@ int cpos_intent_os(const char *name, const char *args, char *value, size_t vmax)
     return CPOS_INTENT_NO_APP;
 }
 
-static int run(const entry_t *en, const char *args, char *value, size_t vmax) {
+static int run(intents_ctx_t *c, const entry_t *en, const char *args, char *value, size_t vmax) {
     if (!strncmp(en->name, "os.", 3)) return cpos_intent_os(en->name, args, value, vmax);
-    static char json[3100], obj[600];
     int tmo = 2000;
-    if (cpos_read_intents(en->path, json, sizeof(json)) > 0 && intent_obj(json, en->name, obj, sizeof(obj))) tmo = obj_int(obj, "timeout_ms", 2000);
+    if (cpos_read_intents(en->path, c->json, sizeof(c->json)) > 0 && intent_obj(c->json, en->name, c->obj, sizeof(c->obj)))
+        tmo = obj_int(c->obj, "timeout_ms", 2000);
     ui_status(en->name, en->app);
     return ui_run_intent(en->path, en->name, args, value, vmax, tmo);
 }
 
-void intents_screen(void) {
+static void screen(intents_ctx_t *c) {
     ui_status("Intents", "reading apps...");
-    scan();
+    scan(c);
     int n = 0;
-    static ui_item_t items[MAX_ENTRIES + 5];
-    static const entry_t *map[MAX_ENTRIES + 5];
-    static entry_t os_e[5];
-    for (int i = 0; i < 5; i++) {
+    ui_item_t *items = c->items;
+    const entry_t **map = c->map;
+    entry_t *os_e = c->os_e;
+    for (int i = 0; i < N_OS; i++) {
         strlcpy(os_e[i].name, os_intents[i], sizeof(os_e[i].name));
         strlcpy(os_e[i].app, "OS", sizeof(os_e[i].app));
         snprintf(items[n].left, 48, "%s", os_e[i].name);
@@ -170,11 +181,11 @@ void intents_screen(void) {
         items[n].color = C_ACC;
         map[n++] = &os_e[i];
     }
-    for (int i = 0; i < s_n; i++) {
-        snprintf(items[n].left, 48, "%s", s_e[i].name);
-        snprintf(items[n].right, 24, "%.22s", s_e[i].app);
+    for (int i = 0; i < c->n; i++) {
+        snprintf(items[n].left, 48, "%s", c->e[i].name);
+        snprintf(items[n].right, 24, "%.22s", c->e[i].app);
         items[n].color = 0;
-        map[n++] = &s_e[i];
+        map[n++] = &c->e[i];
     }
     int sel = 0;
     for (;;) {
@@ -186,14 +197,21 @@ void intents_screen(void) {
             if (!strcmp(en->name, "os.notify")) strlcpy(args, "text=", sizeof(args));
             else if (!strcmp(en->name, "os.open")) { ui_message("os.open", "Use the launcher to open apps."); continue; }
         } else {
-            static char json[3100], obj[600];
-            if (cpos_read_intents(en->path, json, sizeof(json)) > 0 && intent_obj(json, en->name, obj, sizeof(obj))) args_template(obj, args, sizeof(args));
+            if (cpos_read_intents(en->path, c->json, sizeof(c->json)) > 0 && intent_obj(c->json, en->name, c->obj, sizeof(c->obj)))
+                args_template(c->obj, args, sizeof(args));
         }
         if (args[0] && !ui_input(en->name, args, sizeof(args), 0)) continue;
         char value[CPOS_INTENT_VALUE_MAX];
-        int st = run(en, args, value, sizeof(value));
+        int st = run(c, en, args, value, sizeof(value));
         char m[CPOS_INTENT_VALUE_MAX + 24];
         snprintf(m, sizeof(m), "%s%s%s", status_name(st), value[0] ? ": " : "", value);
         ui_message(en->name, m);
     }
+}
+
+void intents_screen(void) {
+    intents_ctx_t *c = heap_caps_calloc(1, sizeof(*c), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (!c) { ui_message("Intents", "Not enough memory."); return; }
+    screen(c);
+    free(c);
 }
