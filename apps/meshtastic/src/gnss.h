@@ -15,6 +15,10 @@ struct Gnss {
     uint8_t sats = 0;
     uint32_t unix = 0, unix_at = 0; // hora UTC y millis() en que se leyó
     uint32_t fix_at = 0;
+    // gnss_begin() abre el puerto serie aunque no haya receptor conectado: el módulo existe recién
+    // cuando llega una sentencia NMEA válida (seen), y sigue ahí mientras sigan llegando (rx_at)
+    bool seen = false;
+    uint32_t rx_at = 0;
     char line[100];
     uint8_t n = 0;
 } G;
@@ -46,6 +50,8 @@ static void nmeaLine(char *s) {
     uint8_t cs = 0;
     for (char *p = s + 1; p < star; p++) cs ^= (uint8_t)*p;
     if (strtoul(star + 1, nullptr, 16) != cs) return;
+    G.seen = true;
+    G.rx_at = millis();
     *star = 0;
     char *f[20];
     int nf = 0;
@@ -106,7 +112,7 @@ static void pollGnss() {
 
 static void setGps(bool on) {
     if (on && !G.up) G.up = cpos_api->lora.gnss_begin(115200) == 0;
-    if (!on && G.up) { cpos_api->lora.gnss_end(); G.up = false; G.fix = false; }
+    if (!on && G.up) { cpos_api->lora.gnss_end(); G.up = false; G.fix = false; G.seen = false; }
 }
 
 // hora UTC: la del GPS, o la que haya puesto el teléfono (gnss_set_time), o 0

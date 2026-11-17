@@ -1,8 +1,8 @@
 {
   "name": "compass",
   "displayName": "Brújula",
-  "version": "0.2.0",
-  "description": "Brújula con el acelerómetro y el giróscopo: vista 3D, vista 2D con nivel de burbuja y, con el Cap LoRa-1262, GPS (velocidad, altitud, satélites) y vista Destino con rumbo y distancia a puntos guardados y nodos Meshtastic. El norte se fija a mano (no tiene magnetómetro).",
+  "version": "0.2.1",
+  "description": "Brújula con el acelerómetro y el giróscopo: vista 3D, vista 2D con nivel de burbuja y, con el Cap LoRa-1262, GPS (velocidad, altitud, satélites) y vista Destino con rumbo y distancia a puntos guardados y nodos Meshtastic. Sin el módulo es una brújula sola. El norte se fija a mano (no tiene magnetómetro).",
   "perms": [
     "imu",
     "gnss",

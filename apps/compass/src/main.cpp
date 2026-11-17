@@ -9,9 +9,10 @@
 //
 // Con el Cap LoRa-1262 usa además el GPS: velocidad, altitud y satélites en pantalla, y la vista
 // Destino, que apunta y mide la distancia a un punto guardado o a un nodo Meshtastic con posición
-// (los que la app Meshtastic guarda en la SD).
+// (los que la app Meshtastic guarda en la SD). Sin el módulo es simplemente una brújula: si en los
+// primeros segundos no llega NMEA, apaga el puerto serie y no muestra nada del GPS ni la vista Destino.
 //
-//   tab  m        vista 3D / 2D / Destino
+//   tab  m        vista 3D / 2D (/ Destino, con GPS)
 //   enter         fijar el norte hacia donde apunta el Cardputer
 //   ,  /          girar el norte 5° a la izquierda / derecha
 //   ;  .          Destino: destino anterior / siguiente
@@ -110,6 +111,18 @@ static float heading = 0;         // rad, horario desde el norte
 static float pitchDeg = 0, rollDeg = 0;
 static Mat R;
 
+// GPS: hay módulo sólo si llega NMEA. Sin respuesta en GPS_PROBE_MS se apaga el puerto (el OS
+// alterna los pines 13/15 cada 3 s buscando el receptor: 8 s cubren las dos posiciones).
+static constexpr uint32_t GPS_PROBE_MS = 8000;
+static constexpr uint32_t GPS_LOST_MS = 5000;
+static uint32_t gpsStartedAt = 0;
+static bool resumeTarget = false; // la última vez quedó en Destino: volver ahí si aparece el GPS
+
+static bool hasGps()
+{
+    return G.up && G.seen && millis() - G.rx_at < GPS_LOST_MS;
+}
+
 static char toast[48] = "";
 static uint32_t toastUntil = 0;
 
@@ -207,6 +220,7 @@ static bool savePoints()
 
 static void addPoint()
 {
+    if (!hasGps()) { showToast("Sin módulo GPS"); return; }
     if (!G.fix) { showToast("Sin posición GPS todavía"); return; }
     if (nPoints >= MAX_TARGETS) { showToast("No entran más puntos"); return; }
     // los puntos van antes que los nodos
@@ -241,15 +255,36 @@ static void deletePoint()
 
 static void cycleView()
 {
-    view = view == View::ThreeD ? View::TwoD : view == View::TwoD ? View::Target : View::ThreeD;
+    resumeTarget = false;
+    if (view == View::ThreeD) view = View::TwoD;
+    else if (view == View::TwoD && hasGps()) view = View::Target; // Destino sólo con GPS
+    else view = View::ThreeD;
     if (view == View::Target) loadTargets();
     savePrefs();
+}
+
+// Detecta el módulo GPS y acomoda la vista: sin módulo, la app es una brújula sola.
+static void updateGps()
+{
+    if (G.up && !G.seen && millis() - gpsStartedAt > GPS_PROBE_MS) {
+        setGps(false); // nada respondió: sin Cap LoRa-1262, libera el puerto serie y los pines
+        resumeTarget = false;
+    }
+    if (resumeTarget && hasGps()) {
+        resumeTarget = false;
+        view = View::Target;
+        loadTargets();
+    }
+    if (view == View::Target && !hasGps() && G.seen) {
+        view = View::TwoD; // el módulo dejó de responder (se desconectó)
+        showToast("Se perdió el módulo GPS");
+    }
 }
 
 // línea de GPS para el pie: satélites, velocidad, altitud
 static bool gpsLine(char *buf, size_t n)
 {
-    if (!G.up) return false;
+    if (!hasGps()) return false;
     if (!G.fix) snprintf(buf, n, "GPS buscando · %u sat", G.sats);
     else snprintf(buf, n, "%u sat · %.0f km/h · %d m", G.sats, G.speed_kmh, (int)G.alt);
     return true;
@@ -533,7 +568,7 @@ static void render2d()
     spr.fillCircle(cx, cy, 3, C_TEXT);
 
     // Destino elegido: un rombo verde sobre el anillo.
-    if (G.fix && nTargets) {
+    if (hasGps() && G.fix && nTargets) {
         float b = nav_bearing_deg(G.lat, G.lon, targets[sel].lat, targets[sel].lon) * RAD;
         int tx, ty;
         at(b, r - 5, tx, ty);
@@ -621,8 +656,8 @@ static void renderTarget()
         spr.setFont(&fonts::lgfxJapanGothicP_12);
         spr.setTextDatum(textdatum_t::middle_center);
         spr.setTextColor(C_YELLOW);
-        spr.drawString(G.up ? "sin GPS" : "sin módulo", cx, cy);
-        spr.drawString("GPS", cx, cy + 14);
+        spr.drawString("buscando", cx, cy);
+        spr.drawString("señal GPS", cx, cy + 14);
         return;
     }
     double dist = nav_distance_m(G.lat, G.lon, t.lat, t.lon);
@@ -716,7 +751,7 @@ static void render()
         } else if (!northSet && view != View::Target) {
             spr.setTextColor(C_YELLOW);
             spr.drawString("Apuntá al norte y apretá enter", 4, 134);
-        } else if (view == View::TwoD && G.up) {
+        } else if (view == View::TwoD && hasGps()) {
             // en 2D la rosa ocupa la izquierda: el GPS va en dos líneas a la derecha
             spr.setTextDatum(textdatum_t::bottom_right);
             spr.setTextColor(G.fix ? C_GREEN : C_DIM);
@@ -805,13 +840,18 @@ void setup()
 
     prefs.begin("compass", false);
     view = (View)std::min<uint8_t>(prefs.getUChar("view", 0), 2);
+    if (view == View::Target) { // todavía no se sabe si hay GPS: arranca en 2D y vuelve a Destino si aparece
+        view = View::TwoD;
+        resumeTarget = true;
+    }
     axisMap = prefs.getUChar("axis", 0) % 8;
 
     spr.setColorDepth(16);
     spr.createSprite(240, 135);
     R = rotation();
     startCalibration();
-    G.up = cpos_api->lora.gnss_begin(115200) == 0; // sin el Cap LoRa-1262 sigue sin GPS
+    setGps(true); // abre el puerto; updateGps() decide si de verdad hay un receptor
+    gpsStartedAt = millis();
     loadTargets();
 }
 
@@ -821,6 +861,7 @@ void loop()
     handleKeys();
     readImu();
     pollGnss();
+    updateGps();
     if (view == View::Target && millis() - targetsLoadedAt > 30000) loadTargets(); // nodos nuevos de Meshtastic
 
     static uint32_t lastDraw = 0;

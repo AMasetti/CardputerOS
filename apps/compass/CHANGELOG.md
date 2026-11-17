@@ -1,5 +1,13 @@
 # Changelog — Brújula
 
+## 0.2.1
+- Sin el Cap LoRa-1262 es una brújula sola. Antes el puerto serie abría igual sin receptor, así que la
+  app creía tener GPS: mostraba "GPS buscando · 0 sat" para siempre y ofrecía la vista Destino. Ahora el
+  módulo cuenta sólo si llega NMEA; si en 8 s no llega nada, apaga el puerto y deja los pines quietos,
+  tab alterna 3D / 2D y el pie no habla del GPS.
+- Si la última vez quedó en Destino, arranca en 2D y vuelve a Destino cuando aparece el GPS. Si el
+  módulo deja de responder estando en Destino, pasa a 2D y lo avisa.
+
 ## 0.2.0
 - GPS del Cap LoRa-1262: satélites, velocidad y altitud en el pie de pantalla (sin el módulo, igual que antes).
 - Vista Destino (tab): flecha, distancia y rumbo hacia un punto guardado o un nodo Meshtastic con posición,
