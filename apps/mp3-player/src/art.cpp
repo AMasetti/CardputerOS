@@ -79,7 +79,7 @@ static bool generate(int album, LGFX_Sprite &spr)
     std::string dir = lib::trackDir(al.tracks[0]);
     std::string best;
     int bestRank = 0;
-    if (DIR *d = opendir(("/sd" + dir).c_str())) {
+    if (DIR *d = opendir(("/sdcard" + dir).c_str())) {
         while (dirent *e = readdir(d)) {
             if (e->d_type == DT_DIR) continue;
             int r = imageRank(e->d_name);
@@ -130,7 +130,7 @@ bool load(int album, LGFX_Sprite &spr)
 
 void clearCache()
 {
-    DIR *d = opendir((std::string("/sd") + ART_DIR).c_str());
+    DIR *d = opendir((std::string("/sdcard") + ART_DIR).c_str());
     if (!d) return;
     std::vector<std::string> names;
     while (dirent *e = readdir(d))

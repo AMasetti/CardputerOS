@@ -380,7 +380,7 @@ static bool isMp3(const char *n)
 
 static void walk(const std::string &rel, int depth, std::vector<std::string> &out)
 {
-    std::string full = std::string("/sd") + MUSIC_DIR + (rel.empty() ? "" : "/" + rel);
+    std::string full = std::string("/sdcard") + MUSIC_DIR + (rel.empty() ? "" : "/" + rel);
     DIR *d = opendir(full.c_str());
     if (!d) return;
     while (dirent *e = readdir(d)) {

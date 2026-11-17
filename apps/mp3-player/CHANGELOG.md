@@ -1,5 +1,11 @@
 # Changelog — MP3 Player
 
+## 0.2.5
+- Vuelve a encontrar la música: las carpetas se abrían como `/sd/...` (la ruta del firmware Arduino) y
+  CardputerOS sólo deja abrir `/sdcard/...`, así que no se veía nada dentro de `/music`. Lo mismo
+  afectaba a las tapas `cover.jpg`/`folder.jpg`, al borrado de la caché de tapas y a la lista de playlists.
+- Con CardputerOS 0.9.3 o posterior, las carpetas y archivos con tildes o ñ se abren bien.
+
 ## 0.2.4
 - Intents (CardputerOS 0.7.0 and later, docs/intents.md): music.play_playlist, music.shuffle_all, music.playlists, music.volume, music.shuffle.
 

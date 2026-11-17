@@ -85,7 +85,7 @@ void loadAll()
 {
     lists.clear();
     SD.mkdir(DIR_PATH);
-    DIR *d = opendir((std::string("/sd") + DIR_PATH).c_str());
+    DIR *d = opendir((std::string("/sdcard") + DIR_PATH).c_str());
     if (!d) return;
     while (dirent *e = readdir(d)) {
         const char *n = e->d_name;
