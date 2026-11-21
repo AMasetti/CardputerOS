@@ -1,0 +1,18 @@
+{
+  "name": "wardriving",
+  "displayName": "Wardriving pasivo",
+  "version": "0.1.0",
+  "description": "Relevamiento SOLO PASIVO de BLE y LoRa con la posición del GPS del Cap LoRa-1262: nunca transmite, anuncia, conecta, asocia ni autentica. BLE por scan pasivo con identidad estable (fingerprint de BLE Sentinel), LoRa solo recepción en un canal fijo (915 MHz), WiFi unsupported con la ABI actual (no hay modo promiscuo; el scan STA es activo y no se usa). CSV en /sdcard/wardriving/sessions, GeoJSON al cerrar.",
+  "perms": [
+    "ble",
+    "wifi",
+    "lora",
+    "gnss",
+    "sd"
+  ],
+  "stack": 8192,
+  "passive_only": true,
+  "include": [
+    "../meshtastic/src"
+  ]
+}
