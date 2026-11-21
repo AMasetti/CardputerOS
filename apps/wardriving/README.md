@@ -81,15 +81,62 @@ en `src/wd_core.h`, y el test garantiza que coincide. Diferencias deliberadas:
 Por identidad se guardan RSSI mínimo/máximo/promedio, primera y última vez, MAC observada, categoría y
 nombre. Están en pantalla y en `ble_identities` del JSON de metadatos.
 
+## Pantalla
+
+Fuente fija 6x8 sobre el canvas de pantalla del OS (sin framebuffer propio). El texto y el layout se arman
+en `src/wd_ui.h`, y `test/ui_test.cpp` revisa todas las combinaciones de estado. El color siempre
+acompaña al texto, nunca lo reemplaza: rojo = captura activa o error, verde = escuchando o fix,
+amarillo = pausada, buscando, sin fix o RAM, gris = apagado o no disponible, celeste = ayuda, última
+actividad y controles.
+
+```text
+. CAPTURA ACTIVA                00:12:48
+Sesion 0007                 SD: GRABANDO
+----------------------------------------
+BLE   ESCUCHANDO           24 ids 128 ev
+WiFi  NO DISP                    ABI 1.8
+LoRa  ESCUCHANDO             7 ids 43 ev
+GPS   FIX                      8 sat ~5m
+----------------------------------------
+Ultimo: BLE     hace 2s
+Muestras: 171      lote: 12/32
+----------------------------------------
+ENTER pausa   B BLE  L LoRa  G GPS
+R nueva       S guardar  H ayuda
+```
+
+| Fila | Estados |
+|---|---|
+| Captura | `CAPTURA ACTIVA` (capturando), `PAUSADA` (sesión abierta, radios apagadas), `DETENIDA` (sin sesión) |
+| SD | `GRABANDO` (sesión abierta y el último lote se escribió bien), `RAM` (captura sin guardar: sin SD), `ERROR` (el motivo está en el diagnóstico), `SIN SESION` |
+| BLE / LoRa | `ESCUCHANDO`, `APAGADO`, `ERROR`. En pausa, una radio activada dice `listo` (empieza a escuchar con ENTER). Son radios pasivas: nunca dicen "conectado" |
+| WiFi | `NO DISP` · `ABI 1.8` (ver abajo) |
+| GPS | `FIX` (fix de menos de 3 s), `BUSCANDO` (esperando NMEA o el primer fix), `SIN FIX` (había fix y se perdió), `APAGADO`, `ERROR` (el puerto no abre o pasan 8 s sin NMEA: no hay receptor) |
+
+`ids` son identidades agregadas y `ev` los eventos recibidos en la sesión (advertisings o paquetes).
+El dashboard no muestra parámetros técnicos: están en el diagnóstico.
+
+La fuente del OS es ASCII, por eso la pantalla dice "Sesion" y "~5m" en lugar de "Sesión" y "±5m". En la
+maqueta de arriba, el punto del encabezado es un círculo dibujado.
+
 ## Teclas
 
 | Tecla | Acción |
 |---|---|
-| `enter` | iniciar / detener la captura. Al iniciar, abre una sesión si no hay una |
-| `b` `w` `l` | armar / desarmar BLE, WiFi (solo diagnóstico) y LoRa |
-| `g` | prender / apagar el GPS |
-| `r` | cerrar la sesión actual (limpio) y abrir una nueva |
-| `s` | detener, guardar y cerrar la sesión |
+| `ENTER` | iniciar / pausar la captura. Al iniciar, abre una sesión si no hay una |
+| `B` | activar / apagar BLE |
+| `L` | activar / apagar LoRa |
+| `G` | activar / apagar el GPS |
+| `R` | cerrar la sesión actual (limpio) y abrir una nueva. Si estaba capturando, sigue capturando |
+| `S` | detener, guardar y cerrar la sesión |
+| `H` (o `?`) | dashboard → ayuda → diagnóstico → dashboard |
+| `esc` | volver al dashboard |
+| `W` | abrir el diagnóstico (WiFi no está disponible: ahí está el motivo) |
+
+**Ayuda:** una acción por línea. **Diagnóstico:** estado de captura y sesión; BLE `ESCUCHANDO PASIVO`
+con ids, eventos, descartes y última actividad; WiFi `NO DISPONIBLE` (`ABI 1.8 sin monitor pasivo`);
+LoRa `RX` con frecuencia, SF, BW y sync, más ids, eventos, descartes y última actividad; GPS con puerto,
+NMEA, fix, satélites, edad y HDOP; SD con estado, archivo de sesión y motivo; versión de la app.
 
 Al salir de la app, la sesión también se cierra limpio.
 
@@ -145,12 +192,12 @@ inventan puntos.
 ≤ 48, nombre ≤ 24 bytes y línea CSV ≤ 320 bytes. Lo que no entra se descarta y se cuenta en pantalla
 (`drop`) y en el JSON.
 
-## Memoria (v0.1.0, `readelf -l dist/wardriving-v0.1.0.elf`)
+## Memoria (v0.2.0, `readelf -l dist/wardriving-v0.2.0.elf`)
 
 | | medido | presupuesto |
 |---|---|---|
-| `.text` (LOAD R E) | 0x5860 = 22 624 B | 64 KB |
-| datos (LOAD RW, MemSiz) | 0x3540 = 13 632 B | 18 KB |
+| `.text` (LOAD R E) | 0x6bf4 = 27 636 B | 64 KB |
+| datos (LOAD RW, MemSiz) | 0x3750 = 14 160 B | 18 KB |
 
 Las tablas y el ring son arrays fijos (sin heap, STL, `String`, excepciones ni RTTI). El ring guarda
 referencias a la tabla, y la identidad y la categoría se recalculan desde la clave.
@@ -165,7 +212,14 @@ directorio y encuentra `ble_srv` en `apps/meshtastic/src/main.cpp`, así que el 
 c++ -std=c++17 -Wall -Iapps/wardriving/src -Iapps/wardriving/test/stub -Iapps/ble-sentinel/src \
     apps/wardriving/test/core_test.cpp apps/ble-sentinel/src/fingerprint.cpp -o /tmp/wd_test && \
     /tmp/wd_test apps/wardriving/src/main.cpp
+c++ -std=c++17 -Wall -Iapps/wardriving/src apps/wardriving/test/ui_test.cpp -o /tmp/wd_ui_test && \
+    /tmp/wd_ui_test apps/wardriving/src/main.cpp apps/wardriving/src/wd_ui.h
 ```
+
+`ui_test` revisa todas las combinaciones de estado en las tres vistas. Comprueba que nada se corte ni se
+encime en 240x135, que no vuelvan `REC`, `PAUSA`, on/off ni el asterisco como estado, que estén
+`CAPTURA`, `ESCUCHANDO`, `NO DISP`, `FIX`, `SD` y los controles, y que cada control del dashboard tenga
+su tecla en `main.cpp`.
 
 El test cubre el escape CSV (coma, comillas, newline y fórmulas), los campos vacíos, las coordenadas
 WGS84 y sus bordes, el orden `[lon,lat]`, la paridad del fingerprint con Sentinel y la identidad estable
@@ -173,4 +227,4 @@ ante rotación de MAC. También cubre los límites de tablas, ring, payload, nom
 de un `.part` cortado y la revisión de que el código solo escucha. Los advertisings y paquetes del test
 están armados a mano para ejercitar el parser: la app no simula datos de radio.
 
-No se probó en hardware.
+No se probó en hardware. La legibilidad de la pantalla 0.2.0 en la Cardputer todavía no está verificada.

@@ -12,7 +12,9 @@
 //   - GNSS: lectura NMEA (gnss.h de apps/meshtastic). gnss_write no se usa.
 // test/core_test.cpp revisa este archivo y falla si aparece alguna llamada que transmita o conecte.
 //
-// Teclas: b BLE · w WiFi · l LoRa · g GPS · enter iniciar/detener · r nueva sesión · s guardar y cerrar
+// Teclas: enter iniciar/pausar · b BLE · l LoRa · g GPS · r nueva sesión · s guardar y cerrar
+//         h (o ?) ayuda -> diagnóstico -> dashboard · ` (esc) volver al dashboard · w diagnóstico WiFi
+// La pantalla (dashboard, ayuda, diagnóstico) se arma en wd_ui.h; acá solo se juntan los estados.
 //
 // SD: /sdcard/wardriving/sessions/session-XXXX.csv.part (append-only, lotes cada 5 s o 32 filas, fflush
 // y cierre por lote). Al cierre limpio: .part -> .csv, GeoJSON y JSON de metadatos. Nunca borra nada.
@@ -29,6 +31,7 @@ extern const cpos_api_t *cpos_api;
 static inline uint32_t millis() { return cpos_api->millis(); }
 #include "gnss.h" // lector NMEA compartido con Meshtastic (apps/meshtastic/src)
 #include "wd_core.h"
+#include "wd_ui.h"
 
 #ifndef APP_VERSION
 #define APP_VERSION "dev"
@@ -43,29 +46,34 @@ static inline uint32_t millis() { return cpos_api->millis(); }
 // power_dbm al mínimo aunque no se transmita nunca.
 static const cpos_lora_cfg_t LORA_CFG = {915000000u, 125000u, 9, 5, 0x12, -9, 8, 1, 0};
 
-enum { R_OFF, R_ON, R_FAIL, R_UNSUPPORTED };
-static const char *const R_TXT[] = {"off", "on", "error", "unsupported"};
+enum { R_OFF = WD_RS_OFF, R_ON = WD_RS_ON, R_FAIL = WD_RS_ERROR, R_UNSUPPORTED };
 
 static WdStore S;
 static bool armed[3] = {true, false, true};
 static uint8_t rstate[3] = {R_OFF, R_UNSUPPORTED, R_OFF};
-static char rdiag[3][40] = {"", "sin modo promiscuo en ABI 1.8", ""};
+static char rdiag[3][32] = {"", "ABI 1.8 sin monitor pasivo", ""};
 static bool running = false, gps_on = true;
-static uint32_t adv_seen = 0, scan_rsp_ignored = 0, lora_seen = 0, drop_line = 0;
+static uint32_t adv_seen = 0, scan_rsp_ignored = 0, lora_seen = 0, drop_line = 0; // ev de la sesión
+static uint32_t ble_last_ms = 0, lora_last_ms = 0; // 0 = sin eventos todavía
+static uint32_t run_acc_ms = 0, run_start_ms = 0;  // tiempo capturando en la sesión
+static uint32_t gps_on_at = 0;
+static bool gps_had_fix = false, sd_error = false;
+static uint8_t view = WD_VIEW_DASH;
+static uint32_t toast_at = 0;
 
 static int sess_no = 0;
 static bool sess_open = false, log_ok = false, meta_has_boot = false;
-static char sd_msg[40] = "";
+static char sd_msg[34] = "";
 static uint64_t boot_unix_ms = 0;
 static uint32_t last_flush = 0, last_draw = 0, last_wifi_off = 0;
 static uint32_t rec_rows = 0, rec_bad = 0, rec_torn = 0; // última recuperación/exportación
 static uint8_t recovered = 0;
-static char diag[64] = "";
+static char diag[WD_UI_COLS + 1] = ""; // aviso corto de la última tecla
 
 static char g_line[WD_LINE_MAX];
 static char g_feat[WD_FEAT_MAX];
 
-static void say(const char *m) { strncpy(diag, m, sizeof(diag) - 1); diag[sizeof(diag) - 1] = 0; }
+static void say(const char *m) { strncpy(diag, m, sizeof(diag) - 1); diag[sizeof(diag) - 1] = 0; toast_at = millis(); }
 
 // ---- GNSS -----------------------------------------------------------------------------------------
 static WdGps gpsNow() {
@@ -78,6 +86,7 @@ static WdGps gpsNow() {
         g.alt_m = G.alt; g.has_alt = G.sats > 0;
         if (G.hdop > 0 && G.hdop < 999) g.acc_dm = (uint16_t)(G.hdop * 50 + 0.5f); // HDOP x 5 m (estimado)
         g.fix_age_ms = age;
+        gps_had_fix = true;
     }
     if (G.unix && !boot_unix_ms) boot_unix_ms = (uint64_t)G.unix * 1000 - G.unix_at;
     return g;
@@ -132,7 +141,8 @@ static bool rowsOn() { return running && sess_open && log_ok; }
 
 static void sdFail(const char *what) {
     log_ok = false; // se deja de escribir; la captura sigue en RAM (tablas y ring)
-    snprintf(sd_msg, sizeof(sd_msg), "ERROR SD: %s", what);
+    sd_error = true;
+    snprintf(sd_msg, sizeof(sd_msg), "%s", what);
 }
 
 static void flushRing() {
@@ -266,7 +276,12 @@ static int scanSessions(bool recover) {
 }
 
 static void openSession() {
-    if (!sdDirs()) { sess_open = false; log_ok = false; strcpy(sd_msg, "sin SD: solo RAM"); return; }
+    S.reset();
+    adv_seen = lora_seen = drop_line = 0;
+    ble_last_ms = lora_last_ms = 0;
+    run_acc_ms = 0; run_start_ms = millis();
+    sd_error = false;
+    if (!sdDirs()) { sess_open = false; log_ok = false; strcpy(sd_msg, "sin SD: captura solo en RAM"); return; }
     sess_no = scanSessions(false);
     char p[64];
     sessPath(p, sizeof(p), sess_no, ".csv.part");
@@ -278,9 +293,7 @@ static void openSession() {
     sess_open = true;
     log_ok = ok;
     if (!ok) { sdFail("encabezado"); return; }
-    S.reset();
-    adv_seen = lora_seen = drop_line = 0;
-    snprintf(sd_msg, sizeof(sd_msg), "SD ok: session-%04d", sess_no);
+    snprintf(sd_msg, sizeof(sd_msg), "ultimo lote ok");
     writeMeta("open");
     last_flush = millis();
 }
@@ -306,10 +319,10 @@ static void closeSession() {
     if (log_ok && !exists(csv) && rename(part, csv) == 0) {
         bool g = exportRows(csv, nullptr, geo);
         writeMeta("closed");
-        snprintf(sd_msg, sizeof(sd_msg), g ? "cerrada %04d: %lu filas" : "cerrada %04d, GeoJSON fallo", sess_no, (unsigned long)rec_rows);
+        snprintf(sd_msg, sizeof(sd_msg), g ? "cerrada %04d: %lu filas" : "cerrada %04d, fallo GeoJSON", sess_no, (unsigned long)rec_rows);
     } else {
         writeMeta("open"); // el .part sigue siendo la fuente de verdad; se recupera al próximo arranque
-        snprintf(sd_msg, sizeof(sd_msg), "no se cerro %04d: queda .part", sess_no);
+        snprintf(sd_msg, sizeof(sd_msg), "sin cerrar %04d: queda el .part", sess_no);
     }
     sess_open = false;
     log_ok = false;
@@ -323,6 +336,7 @@ static void pollBle(uint32_t now) {
     WdGps g = gpsNow();
     for (int k = 0; k < 48 && cpos_api->ble.scan_read(&a); k++) {
         adv_seen++;
+        ble_last_ms = now ? now : 1;
         // Un SCAN_RSP tiene otro largo y otros AD: no entra al fingerprint (con scan pasivo no debería llegar)
         if (a.event == 4) { scan_rsp_ignored++; continue; }
         wd_parse_adv(a.data, a.len > 31 ? 31 : a.len, o);
@@ -337,6 +351,7 @@ static void pollLora(uint32_t now) {
     WdGps g = gpsNow();
     for (int k = 0; k < 8 && cpos_api->lora.recv(&p); k++) {
         lora_seen++;
+        lora_last_ms = now ? now : 1;
         if (S.ring_full()) flushRing();
         S.lora_observe(LORA_CFG.freq_hz, p.rssi, p.snr4, p.data, p.len, p.ms ? p.ms : now, g, rowsOn());
     }
@@ -345,34 +360,40 @@ static void pollLora(uint32_t now) {
 // ---- teclado y pantalla -------------------------------------------------------------------------
 static void setRunning(bool on) {
     if (on == running) return;
+    uint32_t now = millis();
     if (on && !sess_open) openSession();
-    if (!on) batch(millis());
+    if (!on) { batch(now); run_acc_ms += now - run_start_ms; }
+    else run_start_ms = now;
     running = on;
     radiosApply();
-    say(on ? "capturando (solo escucha)" : "detenido");
+    say(on ? "Captura activa: solo escucha" : "Captura pausada");
     if (!on && sess_open && log_ok) writeMeta("open");
 }
 
 static void onKey(char c) {
     switch (c) {
-    case 'b': armed[WD_SRC_BLE] = !armed[WD_SRC_BLE]; radiosApply(); say(armed[WD_SRC_BLE] ? "BLE armado" : "BLE desarmado"); break;
-    case 'l': armed[WD_SRC_LORA] = !armed[WD_SRC_LORA]; radiosApply(); say(armed[WD_SRC_LORA] ? "LoRa armado (solo RX)" : "LoRa desarmado"); break;
-    case 'w':
-        armed[WD_SRC_WIFI] = !armed[WD_SRC_WIFI];
-        say("WiFi unsupported: ABI sin promiscuo, no se simula");
+    case 'b': armed[WD_SRC_BLE] = !armed[WD_SRC_BLE]; radiosApply(); say(armed[WD_SRC_BLE] ? "BLE activado" : "BLE apagado"); break;
+    case 'l': armed[WD_SRC_LORA] = !armed[WD_SRC_LORA]; radiosApply(); say(armed[WD_SRC_LORA] ? "LoRa activado (solo RX)" : "LoRa apagado"); break;
+    case 'w': view = WD_VIEW_DIAG; break; // WiFi no está disponible: el motivo está en el diagnóstico
+    case 'g':
+        gps_on = !gps_on;
+        setGps(gps_on);
+        gps_on_at = millis();
+        gps_had_fix = false;
+        say(gps_on ? "GPS activado" : "GPS apagado");
         break;
-    case 'g': gps_on = !gps_on; setGps(gps_on); say(gps_on ? "GPS encendido" : "GPS apagado"); break;
     case 'r': { // cierra la sesión actual (limpio) y abre otra; sigue capturando si estaba capturando
         bool was = running;
         setRunning(false);
         closeSession();
-        S.reset();
         openSession();
         setRunning(was);
-        say("nueva sesion");
+        say("Nueva sesion");
         break;
     }
-    case 's': setRunning(false); closeSession(); say("sesion guardada y cerrada"); break;
+    case 's': setRunning(false); closeSession(); say("Sesion guardada y cerrada"); break;
+    case 'h': case '?': view = view == WD_VIEW_DASH ? WD_VIEW_HELP : view == WD_VIEW_HELP ? WD_VIEW_DIAG : WD_VIEW_DASH; break;
+    case '`': view = WD_VIEW_DASH; break; // esc
     }
 }
 
@@ -394,64 +415,64 @@ static void pollKeys() {
     prev_enter = k.enter;
 }
 
+static WdUiRadio radioUi(uint8_t src, uint32_t ids, uint32_t ev, uint32_t drop, uint32_t last_ms, uint32_t now) {
+    WdUiRadio r;
+    r.state = rstate[src] == R_ON ? WD_RS_ON : rstate[src] == R_FAIL ? WD_RS_ERROR : WD_RS_OFF;
+    r.armed = armed[src];
+    r.ids = ids; r.ev = ev; r.drop = drop;
+    r.last_age_ms = last_ms ? now - last_ms : WD_NO_AGE;
+    r.why = rdiag[src];
+    return r;
+}
+
 static void draw() {
+    uint32_t now = millis();
+    WdGps g = gpsNow();
+    WdUiIn in;
+    in.version = APP_VERSION;
+    in.running = running; in.sess_open = sess_open; in.sess_no = sess_no;
+    in.elapsed_s = (run_acc_ms + (running ? now - run_start_ms : 0)) / 1000;
+    in.sd_error = sd_error; in.log_ok = log_ok; in.sd_msg = sd_msg;
+    in.ble = radioUi(WD_SRC_BLE, S.nble, adv_seen, S.drop_ble, ble_last_ms, now);
+    in.lora = radioUi(WD_SRC_LORA, S.nlora, lora_seen, S.drop_lora, lora_last_ms, now);
+    in.lora_freq_hz = LORA_CFG.freq_hz; in.lora_bw_hz = LORA_CFG.bw_hz; in.lora_sf = LORA_CFG.sf; in.lora_sync = LORA_CFG.sync_word;
+    in.gps_on = gps_on; in.gps_port = G.up; in.gps_nmea = G.seen; in.gps_fix = g.valid; in.gps_had_fix = gps_had_fix;
+    in.gps_on_ms = now - gps_on_at;
+    in.sats = G.sats; in.acc_dm = g.acc_dm;
+    in.hdop10 = G.hdop > 0 && G.hdop < 99 ? (uint16_t)(G.hdop * 10 + 0.5f) : 0;
+    in.fix_age_ms = g.valid ? g.fix_age_ms : WD_NO_AGE;
+    uint32_t last = ble_last_ms > lora_last_ms ? ble_last_ms : lora_last_ms;
+    in.last_src = last ? (ble_last_ms >= lora_last_ms ? WD_SRC_BLE : WD_SRC_LORA) : 255;
+    in.last_age_ms = last ? now - last : WD_NO_AGE;
+    in.rows = S.rows; in.pending = S.ring_n; in.ring = WD_RING;
+    in.toast = *diag && now - toast_at < 2500 ? diag : "";
+
     const cpos_gfx_api_t &x = cpos_api->gfx;
-    cpos_canvas_t *c = x.screen();
-    x.fill(c, 0x0000);
+    cpos_canvas_t *c = x.screen(); // el canvas del OS: sin framebuffer propio
     x.set_font(c, CPOS_FONT0);
     x.set_text_size(c, 1, 1);
-    char b[48];
-    int y = 1;
-    auto ln = [&](uint16_t col, const char *s) { x.set_text_color(c, col, 0, 1); x.draw_string(c, s, 2, y); y += 9; };
-    snprintf(b, sizeof(b), "WARDRIVING PASIVO v%s  %s", APP_VERSION, running ? "REC" : "PAUSA");
-    ln(running ? 0xF800 : 0xFFE0, b);
-    snprintf(b, sizeof(b), "BLE  %c %-5s ids %u/%d drop %lu", armed[0] ? '*' : ' ', R_TXT[rstate[0]], S.nble, WD_MAX_BLE, (unsigned long)S.drop_ble);
-    ln(rstate[0] == R_FAIL ? 0xF800 : 0xFFFF, b);
-    if (rstate[0] == R_FAIL) ln(0xF800, rdiag[0]);
-    snprintf(b, sizeof(b), "WiFi %c unsupported: %s", armed[1] ? '*' : ' ', rdiag[1]);
-    ln(0x8410, b);
-    snprintf(b, sizeof(b), "LoRa %c %-5s %lu.%03luMHz SF%u BW%lu sw%02X", armed[2] ? '*' : ' ', R_TXT[rstate[2]],
-             (unsigned long)(LORA_CFG.freq_hz / 1000000), (unsigned long)(LORA_CFG.freq_hz / 1000 % 1000), LORA_CFG.sf,
-             (unsigned long)(LORA_CFG.bw_hz / 1000), LORA_CFG.sync_word);
-    ln(rstate[2] == R_FAIL ? 0xF800 : 0xFFFF, b);
-    snprintf(b, sizeof(b), "     ids %u/%d pkts %lu drop %lu %s", S.nlora, WD_MAX_LORA, (unsigned long)lora_seen,
-             (unsigned long)S.drop_lora, rstate[2] == R_FAIL ? rdiag[2] : "");
-    ln(0xFFFF, b);
-    WdGps g = gpsNow();
-    if (!G.up) snprintf(b, sizeof(b), "GPS  %s", gps_on ? "no abre el puerto" : "apagado");
-    else if (!G.seen) snprintf(b, sizeof(b), "GPS  sin NMEA (hat?)");
-    else if (!g.valid) snprintf(b, sizeof(b), "GPS  sin fix  %u sat -> gps_valid=false", G.sats);
-    else {
-        unsigned h = (unsigned)(G.hdop * 10 + 0.5f);
-        snprintf(b, sizeof(b), "GPS  fix %u sat hdop %u.%u edad %lums", G.sats, h / 10, h % 10, (unsigned long)g.fix_age_ms);
-    }
-    ln(g.valid ? 0x07E0 : 0xFFE0, b);
-    if (g.valid) {
-        WdOut w(b, sizeof(b));
-        w.s("     "); w.frac(g.lat_e7, 10000000, 6); w.c(' '); w.frac(g.lon_e7, 10000000, 6);
-        ln(0x07E0, b);
-    }
-    snprintf(b, sizeof(b), "log %s  filas %lu  lote %u/%d", rowsOn() ? "ON" : "OFF", (unsigned long)S.rows, S.ring_n, WD_RING);
-    ln(rowsOn() ? 0x07E0 : 0xFFE0, b);
-    snprintf(b, sizeof(b), "drop filas %lu lineas %lu  rec %u", (unsigned long)S.drop_ring, (unsigned long)drop_line, recovered);
-    ln(0xFFFF, b);
-    ln(log_ok || !sess_open ? 0xFFFF : 0xF800, sd_msg);
-    ln(0x07FF, diag);
-    y = 135 - 9;
-    ln(0x8410, "b w l g  enter rec  r nueva  s cerrar");
+    wd_ui_render(view, in, [&](const WdUiItem &it) {
+        switch (it.kind) {
+        case WD_UI_FILL: x.rect(c, it.x, it.y, it.w, it.h, it.fg, 1); break;
+        case WD_UI_HLINE: x.hline(c, it.x, it.y, it.w, it.fg); break;
+        case WD_UI_DOT: x.circle(c, it.x, it.y, it.w, it.fg, 1); break;
+        default: x.set_text_color(c, it.fg, it.bg, 1); x.draw_string(c, it.text, it.x, it.y); break;
+        }
+    });
 }
 
 // ---- Arduino --------------------------------------------------------------------------------------
 void setup() {
     cpos_api->gfx.set_brightness(80);
-    say("Recuperando sesiones...");
+    gps_on_at = millis();
+    strcpy(sd_msg, "recuperando sesiones...");
     draw();
     wifiQuiet();
     if (sdDirs()) scanSessions(true);
     if (recovered) snprintf(sd_msg, sizeof(sd_msg), "recuperadas %u sesiones .part", recovered);
     else strcpy(sd_msg, "SD lista");
     setGps(true);
-    say("enter: empezar a escuchar");
+    gps_on_at = millis();
 }
 
 void loop() {
